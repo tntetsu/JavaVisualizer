@@ -623,7 +623,30 @@ function trimFailedTry(trace, start) {
  */
 export function evaluate(node, env, rt, depth = 0, callDepth = 0) {
   if (!node) return undefined;
+  // 型の名前（System・Math・クラス名）と、そこから組み込みのオブジェクトを取り出すだけの参照（System.out）は、
+  // Java では値を持つ式ではないので記録しない（式評価のビューで class System と置き換わらないように。ADR-003 追記）
+  if (isTypeReference(node, env, rt)) return _eval(node, env, rt, depth, callDepth);
   return rt.recorder.record(node, env, depth, callDepth, () => _eval(node, env, rt, depth, callDepth));
+}
+
+/** 型の名前（変数・フィールドでない、クラス・組み込みのクラスの名前）か */
+function isTypeName(node, env, rt) {
+  if (node.type !== 'Identifier') return false;
+  const name = node.name;
+  if (localScope(name, env)) return false;
+  const ctx = ctxOf(env);
+  if (ctx.cls && (hasInstanceField(ctx.cls, name) || findStaticField(ctx.cls, name))) return false;
+  return rt.classes.has(name) || rt.builtins.has(name) || BUILTIN_CLASSES.has(name);
+}
+
+/** 記録しない参照：型の名前と、組み込みのクラスの組み込みのオブジェクト（System.out） */
+function isTypeReference(node, env, rt) {
+  if (node.type === 'Identifier') return isTypeName(node, env, rt);
+  if (node.type === 'MemberExpression' && !node.computed && isTypeName(node.object, env, rt)) {
+    const b = rt.builtins.get(node.object.name);
+    return !!b && isBuiltin(b.members[node.property.name]);
+  }
+  return false;
 }
 
 function _eval(node, env, rt, depth, callDepth) {

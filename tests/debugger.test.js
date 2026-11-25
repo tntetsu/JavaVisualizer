@@ -117,3 +117,14 @@ test('制御フローのビュー（Java のプロファイル）：クラスの
   const scopes = new TraceBuilder(dbg.trace, src, dbg.ast).buildCFG();
   assert.deepEqual(scopes.map(s => s.name), ['bubbleSort', 'main']);
 });
+
+test('型の名前（System・Math・クラス名）と System.out は記録しない。Math.PI のような値は記録する（ADR-003 追記）', () => {
+  const dbg = new JavaDebugger(wrap('        double r = Math.PI * 2;\n        System.out.println(Math.max(1, 2));\n        P.n++;', 'class P {\n    static int n = 0;\n}\n'));
+  const src = (e) => e.end ? `${e.loc.line}:${e.loc.column}-${e.end.column}` : '';
+  const recorded = dbg.trace.filter(e => e.phase === 'exit' && (e.nodeType === 'Identifier' || e.nodeType === 'MemberExpression'));
+  const names = recorded.map(e => [e.nodeType, src(e)]);
+  // Math（3 行目の 20 列）・System（4 行目の 9 列）・System.out・P は記録されない
+  assert.ok(!names.some(([t, s]) => s.startsWith('3:20-23') || s.startsWith('4:9-14') || s.startsWith('4:9-18') || s.startsWith('5:9-9')));
+  // Math.PI（値）は記録される
+  assert.ok(names.some(([t, s]) => t === 'MemberExpression' && s === '3:20-26'));
+});

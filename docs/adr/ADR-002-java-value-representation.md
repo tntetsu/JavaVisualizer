@@ -1,6 +1,6 @@
 # ADR-002: Java の値の表現
 
-- ステータス: 採用（Phase 0）。ビューでの見せ方（型の表示・String の置き場所・static フィールドの見せ方）は Phase 1〜3 で決め、この ADR に追記する
+- ステータス: 採用（Phase 0）。ビューでの見せ方（型の表示・String の置き場所・static フィールドの見せ方）は Phase 1 で決めた（下の「Phase 1 の追記」）
 - 日付: 2026-11-25
 
 ## 背景
@@ -42,7 +42,18 @@ int over = Integer.MAX_VALUE + 1;  // -2147483648（あふれる）
 - **`double` の表示**：JS の最短の桁（`toExponential()`）は Java（JDK 19 以降）の `Double.toString` の桁と同じ。違うのは書き方（`1.0E7`・`1.0E-4`）と、最短が 1 桁のときに 2 桁の候補からも選ぶ規則（`Double.MIN_VALUE` は `4.9E-324`）だけ。`printf` の `%f`・`%e` は、最短の桁を HALF_UP で丸める（`%.2f` の 2.675 は `2.68`）。どちらも本物と約 1 万件の組み合わせで一致（`tests/format.test.js`）
 - **オーバーロードの選択**は、実行時の引数の値の型で「いちばん近い」ものを選ぶ（Phase 0 の簡略版）。本物の Java は静的な型で選ぶので、`Object o = "s"; f(o);` のような場合に違いうる。授業の範囲で問題が出たら、静的な検査（ADR-004）の型を使う形に直す
 
-## Phase 0 で決めなかったこと（Phase 1〜3）
+## Phase 1 の追記（2026-11-25）：ビューでの見せ方
+
+テストは `tests/adr-examples.test.js`（ADR-002 例 5・6）。画面の側の仕組みは JSVisualizer の ADR-055 追記（言語プロファイルの `varType`・`globalScope`・`valueModel.onHeap`）。
+
+| 論点 | 決定 | 利用者に見える例 |
+|---|---|---|
+| 型の表示 | コールスタック（Call Stack タブ）とメモリのビューで、変数名の前に宣言の型を書く。エンジンが、フレーム（コールスタックの 1 段）に「変数名 → 宣言の型」の表（`varTypes`）を持たせ、宣言のたびに足す。`var` は値から決めた型 | `int a = 3`、`double b = 3.5`、`String[] args`、`Counter this` |
+| `String` の置き場所 | メモリのビューでは**ヒープの箱**として置き、矢印で指す。ほかのビューでは今までどおり値をその場に書く（`"hello"`） | `String s1 = "hello"; String s2 = "hello"; String s3 = new String("hello");` で、`s1` と `s2` の矢印は同じ箱、`s3` は別の箱を指す。オブジェクトの `String` のフィールドも矢印になる（実際の Java の形。矢印が増える） |
+| `static` フィールド | グローバルのスコープに「クラス名.フィールド名」で置き、見出しを `static` にする。static フィールドがなければ出さない | `static` の下に `int Main.created = 2`・`int Counter.total = 1` |
+| プログラムの最後の時点 | `main` が終わっているので、変数・メモリのビューは空（ADR-003） | |
+
+## Phase 0 の時点の記録：決めなかったこと
 
 | 論点 | Phase 0 での仮の形 | 分かったこと |
 |---|---|---|

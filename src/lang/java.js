@@ -45,7 +45,10 @@ export const javaValueModel = {
     if (isObject(v)) return Object.keys(v.fields).length;
     return 0;
   },
+  // メモリのビューで、String をヒープの箱として置く（== が同じオブジェクトかを比べることが見える。ADR-002 追記）
+  onHeap: (v) => v instanceof JString,
   label(v) {
+    if (v instanceof JString) return 'String';
     if (isArray(v)) return `${v.__jelem ?? '?'}[${v.length}]`;
     if (isObject(v)) return v.cls.name;
     return 'Object';
@@ -84,6 +87,11 @@ export const createJavaProfile = (samples, { groups, defaultSample } = {}) => ({
     exit:  ['VariableDeclaration', 'AssignmentExpression', 'UpdateExpression', 'ReturnStatement', 'ThrowStatement', 'CallExpression',
       'LoopBinding', 'CatchBinding', 'CaseMatch', 'FieldDeclaration'],
   },
+  // 変数の宣言の型（コールスタック・メモリのビューで int x と表示する）。エンジンがフレームに持たせた表を引く。
+  // グローバル（static フィールド Main.count）は、どのフレームにもある globalTypes を引く
+  varType: (name, frame, callStack) => (frame ? frame.varTypes?.[name] : callStack?.[0]?.globalTypes?.[name]) ?? null,
+  // グローバルのスコープには static フィールド（Main.count）だけを置くので、見出しを static にし、ないときは出さない
+  globalScope: { label: 'static', hideEmpty: true },
   // 制御フローのビュー：クラスの中のメソッドを描き、switch を case ごとの分岐として描く（JSVisualizer の ADR-055 追記）
   controlFlow: { classMethods: true, switchCases: true },
   valueModel: javaValueModel,

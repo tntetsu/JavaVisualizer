@@ -94,3 +94,23 @@ test('ADR-004 例 3：if (x = 1) は、= と == の取り違えを知らせる',
   assert.match(e.message, /「=」ではなく「==」を使います/);
   assert.equal(e.javac, 'incompatible types: int cannot be converted to boolean');
 });
+
+test('ADR-002 例 5：コールスタック・メモリのビューで、変数名の前に宣言の型が出る（int a・double b・String s・int[] x）', async () => {
+  const { createJavaProfile } = await import('../src/lang/java.js');
+  const profile = createJavaProfile({});
+  const dbg = new JavaDebugger(main('        int a = 1;\n        double b = 2;\n        String s = "x";\n        int[] x = {1};\n        x[0] = 2;'));
+  const ev = dbg.trace.filter(e => e.phase === 'exit' && e.nodeType === 'AssignmentExpression').at(-1);
+  const frame = ev.callStack.at(-1);
+  assert.deepEqual(['args', 'a', 'b', 's', 'x'].map(n => profile.varType(n, frame, ev.callStack)), ['String[]', 'int', 'double', 'String', 'int[]']);
+});
+
+test('ADR-002 例 6：メモリのビューで、String はヒープの箱。同じリテラルは同じ箱、new String は別の箱', async () => {
+  const { javaValueModel: m } = await import('../src/lang/java.js');
+  const dbg = new JavaDebugger(main('        String s1 = "hello";\n        String s2 = "hello";\n        String s3 = new String("hello");\n        int n = 0;'));
+  const vars = dbg.trace.filter(e => e.phase === 'exit' && e.nodeType === 'VariableDeclaration').at(-1).frameEnvs.at(-1);
+  assert.ok(m.onHeap(vars.s1));
+  assert.equal(vars.s1, vars.s2);
+  assert.notEqual(vars.s1, vars.s3);
+  assert.equal(m.label(vars.s1), 'String');
+  assert.equal(m.literal(vars.s3), '"hello"');
+});

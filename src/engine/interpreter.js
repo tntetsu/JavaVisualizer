@@ -107,6 +107,7 @@ export function createRuntime(recorder, classes) {
     recorder, classes,
     builtins: createBuiltins(),
     global: new JScope(null, 'global'),
+    globalTypes: {},   // static フィールド（Main.count）の型。フレームから参照する（画面の型の表示。ADR-002 追記）
     interned: new Map(),
     callCount: 0,
     methodValues: new Map(),   // メソッドの組 → 呼び出し先の値（methodValue）
@@ -182,6 +183,17 @@ function localScope(name, env) {
 }
 
 const staticKey = (cls, name) => `${cls.name}.${name}`;
+
+/**
+ * 変数を宣言する（型を記録し、値があれば入れる）。型はメソッドのフレームの varTypes にも書く（画面の型の表示）
+ * @param {any} [value] 省略すると、値を入れない（int y; の形）
+ */
+function declare(env, name, type, ...value) {
+  env.types.set(name, type);
+  const frame = ctxOf(env).frame;
+  if (frame) frame.varTypes[name] = type;
+  if (value.length) env.bindings.set(name, value[0]);
+}
 
 /** 変数・フィールド・クラスの名前を参照する */
 function lookupName(name, env, rt, loc) {
@@ -286,6 +298,7 @@ export function ensureInit(cls, rt) {
   for (const f of statics) {
     rt.global.bindings.set(staticKey(cls, f.name), defaultValue(f.type));
     rt.global.types.set(staticKey(cls, f.name), f.type);
+    rt.globalTypes[staticKey(cls, f.name)] = f.type;
   }
   const env = new JScope(rt.global, 'block', { cls, thisObj: null, method: null });
   const { depth, callDepth } = currentDepths(rt);
@@ -398,14 +411,19 @@ function assignConvert(v, t) {
 /** ユーザーのメソッド・コンストラクタを呼ぶ */
 export function callMethod(m, target, args, rt, depth, callDepth, loc) {
   if (callDepth + 1 > MAX_CALL_DEPTH) throw new JavaError('StackOverflowError', null, loc);
-  const ctx = { cls: m.cls, thisObj: target, method: m };
+  // フレームに「変数名 → 宣言の型」の表（varTypes）を持たせる。画面がコールスタック・メモリのビューで
+  // int x のように型を表示する（言語プロファイルの varType。ADR-002 追記）。表は宣言のたびに足していく
+  const frame = { name: m.name, loc: loc || { line: 0, column: 0 }, args: null, callId: 0, varTypes: {}, globalTypes: rt.globalTypes };
+  const ctx = { cls: m.cls, thisObj: target, method: m, frame };
   const fenv = new JScope(rt.global, 'function', ctx);
-  if (target) { fenv.bindings.set('this', target); fenv.types.set('this', m.cls.name); }
+  if (target) declare(fenv, 'this', m.cls.name, target);
   const vals = args.map((a, i) => assignConvert(a, m.paramTypes[i]));
-  m.params.forEach((p, i) => { fenv.bindings.set(p, vals[i]); fenv.types.set(p, m.paramTypes[i]); });
+  m.params.forEach((p, i) => declare(fenv, p, m.paramTypes[i], vals[i]));
   const recorder = rt.recorder;
   rt.callCount += 1;
-  recorder.pushFrame({ name: m.name, loc: loc || { line: 0, column: 0 }, args: vals.map(a => cloneValue(a)), callId: rt.callCount }, fenv);
+  frame.args = vals.map(a => cloneValue(a));
+  frame.callId = rt.callCount;
+  recorder.pushFrame(frame, fenv);
   let result;
   try {
     if (m.kind === 'constructor') {
@@ -647,9 +665,8 @@ function _eval(node, env, rt, depth, callDepth) {
         if (decl.init) {
           const v = evalInit(decl.init, env, rt, d, callDepth);
           if (t === 'var') t = typeName(v);
-          env.types.set(name, t);
-          env.bindings.set(name, assignConvert(v, t));
-        } else env.types.set(name, t);
+          declare(env, name, t, assignConvert(v, t));
+        } else declare(env, name, t);
       }
       return undefined;
     }
@@ -699,8 +716,7 @@ function _eval(node, env, rt, depth, callDepth) {
         const ienv = new JScope(env, 'block');
         const t = node.varType === 'var' ? coll.__jelem : node.varType;
         rt.recorder.record(binding, ienv, d, callDepth, () => {
-          ienv.types.set(node.left.name, t);
-          ienv.bindings.set(node.left.name, assignConvert(coll[i], t));
+          declare(ienv, node.left.name, t, assignConvert(coll[i], t));
           return ienv.bindings.get(node.left.name);
         });
         const r = ev(node.body, ienv);
@@ -770,8 +786,7 @@ function _eval(node, env, rt, depth, callDepth) {
           const cenv = new JScope(env, 'block');
           // 捕まえた時点（catch の行）を CatchBinding として記録する（「人」のステップが止まる。ADR-003）
           rec.record({ type: 'CatchBinding', loc: h.head.loc, end: h.head.end }, cenv, d, callDepth, () => {
-            cenv.types.set(h.param.name, h.types[0]);
-            cenv.bindings.set(h.param.name, exc);
+            declare(cenv, h.param.name, h.types.join(' | '), exc);
             return exc;
           });
           try {

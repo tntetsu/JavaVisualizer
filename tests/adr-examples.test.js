@@ -114,3 +114,20 @@ test('ADR-002 例 6：メモリのビューで、String はヒープの箱。同
   assert.equal(m.label(vars.s1), 'String');
   assert.equal(m.literal(vars.s3), '"hello"');
 });
+
+test('ADR-005 例 1：nextInt のあとの nextLine は行の残り（空）を返す', () => {
+  const src = 'import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        int n = sc.nextInt();\n        String rest = sc.nextLine();\n        String line = sc.nextLine();\n        System.out.println(n + "[" + rest + "][" + line + "]");\n    }\n}\n';
+  const dbg = new JavaDebugger(src, { stdin: '12\nhello\n' });
+  assert.deepEqual(joinConsoleLines(dbg.consoleLogs).map(l => l.text), ['12[][hello]']);
+});
+
+test('ADR-005 例 2：数として読めない入力・入力の終わり・import の忘れ', () => {
+  const read = (body, stdin, imp = 'import java.util.Scanner;\n') => {
+    try { new JavaDebugger(`${imp}public class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n${body}\n    }\n}\n`, { stdin }); return null; } catch (e) { return e; }
+  };
+  assert.match(read('        int a = sc.nextInt();', 'five').message, /入力欄の値を、読もうとした型（int など）として読めませんでした。java\.util\.InputMismatchException$/);
+  assert.match(read('        String a = sc.nextLine();', '').message, /入力欄に、読む値（行）がもうありません。java\.util\.NoSuchElementException: No line found$/);
+  const e = read('', '', '');
+  assert.equal(e.name, 'CompileError');
+  assert.equal(e.javac, 'cannot find symbol');
+});

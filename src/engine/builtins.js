@@ -326,7 +326,7 @@ export function createBuiltins() {
     printf: (args, ctx) => { ctx.write(javaFormat(args[0].s, args.slice(1), ctx)); return null; },
   }, 'java.io');
   return new Map([
-    ['System', new JBuiltin('System', { out })],
+    ['System', new JBuiltin('System', { out, in: new JBuiltin('InputStream', {}, 'java.io') })],
     ['Math', new JBuiltin('Math', {
       PI: makeDouble(Math.PI), E: makeDouble(Math.E),
       abs: (a) => absOrMinMax('abs', a), max: (a) => absOrMinMax('max', a), min: (a) => absOrMinMax('min', a),
@@ -387,3 +387,71 @@ export function createBuiltins() {
   ]);
 }
 
+
+// ── Scanner（入力欄から読む。ADR-005） ─────────────────────────────────────────
+
+const INT_RE = /^[+-]?\d+$/;
+const DOUBLE_RE = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$|^[+-]?(NaN|Infinity)$/;
+
+/**
+ * new Scanner(System.in)。input は入力欄の内容（文字列）。区切りは空白（java.util.Scanner の既定）。
+ * nextInt などはトークンを読み、行の残りは nextLine が返す（nextInt のあとの nextLine が "" になるのも本物と同じ）
+ * @param {{ text: string, pos: number }} input 実行ごとに 1 つ（複数の Scanner は同じ入力を読み進める）
+ */
+export function createScanner(input) {
+  const noSuch = (msg = null) => new JavaError('NoSuchElementException', msg);
+  const mismatch = (msg = null) => new JavaError('InputMismatchException', msg);
+  const skipSpace = () => { while (input.pos < input.text.length && /\s/.test(input.text[input.pos])) input.pos++; };
+  /** 次のトークン（読み進めない）。なければ null */
+  const peek = () => {
+    let i = input.pos;
+    while (i < input.text.length && /\s/.test(input.text[i])) i++;
+    if (i >= input.text.length) return null;
+    let j = i;
+    while (j < input.text.length && !/\s/.test(input.text[j])) j++;
+    return { tok: input.text.slice(i, j), end: j };
+  };
+  const take = () => { const p = peek(); if (!p) throw noSuch(); input.pos = p.end; return p.tok; };
+  const intTok = (bits) => {
+    const p = peek();
+    if (!p) throw noSuch();
+    if (!INT_RE.test(p.tok)) throw mismatch();
+    const v = BigInt(p.tok);
+    const lim = 1n << BigInt(bits - 1);
+    if (v >= lim || v < -lim) throw mismatch(`For input string: "${p.tok}"`);
+    input.pos = p.end;
+    return v;
+  };
+  return new JBuiltin('Scanner', {
+    nextInt: () => Number(intTok(32)),
+    nextLong: () => intTok(64),
+    nextDouble: () => {
+      const p = peek();
+      if (!p) throw noSuch();
+      if (!DOUBLE_RE.test(p.tok)) throw mismatch();
+      input.pos = p.end;
+      return makeDouble(Number(p.tok));
+    },
+    nextBoolean: () => {
+      const p = peek();
+      if (!p) throw noSuch();
+      if (!/^(true|false)$/i.test(p.tok)) throw mismatch();
+      input.pos = p.end;
+      return p.tok.toLowerCase() === 'true';
+    },
+    next: () => S(take()),
+    nextLine: () => {
+      if (input.pos >= input.text.length) throw noSuch('No line found');
+      let j = input.text.indexOf('\n', input.pos);
+      if (j < 0) j = input.text.length;
+      const line = input.text.slice(input.pos, j).replace(/\r$/, '');
+      input.pos = Math.min(j + 1, input.text.length + 1);
+      return S(line);
+    },
+    hasNext: () => peek() !== null,
+    hasNextInt: () => { const p = peek(); return !!p && INT_RE.test(p.tok) && BigInt(p.tok) < 2147483648n && BigInt(p.tok) >= -2147483648n; },
+    hasNextDouble: () => { const p = peek(); return !!p && DOUBLE_RE.test(p.tok); },
+    hasNextLine: () => input.pos < input.text.length,
+    close: () => undefined,
+  }, 'java.util');
+}

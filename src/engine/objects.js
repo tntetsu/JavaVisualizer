@@ -91,6 +91,8 @@ const RuntimeException = lang('RuntimeException', Exception);
 const IllegalArgumentException = lang('IllegalArgumentException', RuntimeException);
 const IndexOutOfBoundsException = lang('IndexOutOfBoundsException', RuntimeException);
 
+const NoSuchElementException = new JClass('NoSuchElementException', RuntimeException, { builtin: true, pkg: 'java.util' });
+
 /** 組み込みのクラス（例外など）。名前 → JClass */
 export const BUILTIN_CLASSES = new Map([
   ObjectClass, Throwable, Exception, ErrorCls, RuntimeException, IllegalArgumentException, IndexOutOfBoundsException,
@@ -104,6 +106,8 @@ export const BUILTIN_CLASSES = new Map([
   lang('UnsupportedOperationException', RuntimeException),
   lang('NumberFormatException', IllegalArgumentException),
   lang('StackOverflowError', ErrorCls),
+  NoSuchElementException,
+  new JClass('InputMismatchException', NoSuchElementException, { builtin: true, pkg: 'java.util' }),
 ].map(c => [c.name, c]));
 
 export const isThrowableClass = (c) => isSubclassOf(c, Throwable);

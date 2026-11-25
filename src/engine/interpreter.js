@@ -21,7 +21,7 @@ import {
   JClass, ObjectClass, BUILTIN_CLASSES, isClass, isJObject, isSubclassOf, instanceFields, findStaticField,
   hasInstanceField, findMethods, makeObject, makeThrowable, isThrowable, throwableString, JThrow, toJavaException,
 } from './objects.js';
-import { createBuiltins, isBuiltin, callStringMethod } from './builtins.js';
+import { createBuiltins, isBuiltin, callStringMethod, createScanner } from './builtins.js';
 
 const MAX_CALL_DEPTH = 3000;
 
@@ -102,8 +102,9 @@ export function buildClasses(ast) {
  * @param {Recorder} recorder
  * @param {Map<string, JClass>} classes
  */
-export function createRuntime(recorder, classes) {
+export function createRuntime(recorder, classes, { stdin = '' } = {}) {
   const rt = {
+    input: { text: stdin.replace(/\r\n?/g, '\n'), pos: 0 },   // Scanner が読む入力欄の内容（ADR-005）
     recorder, classes,
     builtins: createBuiltins(),
     global: new JScope(null, 'global'),
@@ -919,6 +920,11 @@ function _eval(node, env, rt, depth, callDepth) {
 
     case 'NewExpression': {
       const name = node.callee.name;
+      if (name === 'Scanner' && !rt.classes.has('Scanner')) {
+        // new Scanner(System.in)：入力欄の内容を読む（ADR-005）
+        node.arguments.forEach(a => ev(a));
+        return createScanner(rt.input);
+      }
       if (name === 'String' && !rt.classes.has('String')) {
         // new String(…) は、中身が同じでも別のオブジェクト（== が false になる）
         const args = node.arguments.map(a => ev(a));

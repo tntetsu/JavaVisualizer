@@ -13,7 +13,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { cpus } from 'node:os';
 import { JavaDebugger } from '../src/engine/java-debugger.js';
@@ -25,9 +25,13 @@ const files = [
   ...readdirSync(join(ROOT, 'tests/cases')).filter(f => !f.startsWith('uncaught_')).map(f => join('tests/cases', f)),
 ].filter(f => f.endsWith('.java')).sort();
 
+/** 入力欄の内容：ファイルと同じ名前の .stdin（なければ空） */
+const stdinFile = (f) => join(ROOT, f.replace(/\.java$/, '.stdin'));
+const stdinOf = (f) => (existsSync(stdinFile(f)) ? readFileSync(stdinFile(f), 'utf8') : '');
+
 function realChanges(file) {
   return new Promise((resolve, reject) => {
-    execFile('java', [join(ROOT, 'tests/tools/TraceStates.java'), join(ROOT, file)], { maxBuffer: 1 << 26, timeout: 120000 }, (err, stdout, stderr) => {
+    execFile('java', [join(ROOT, 'tests/tools/TraceStates.java'), join(ROOT, file), ...(existsSync(stdinFile(file)) ? [stdinFile(file)] : [])], { maxBuffer: 1 << 26, timeout: 120000 }, (err, stdout, stderr) => {
       if (err) reject(new Error(stderr || err.message)); else resolve(JSON.parse(stdout));
     });
   });
@@ -45,7 +49,7 @@ for (const f of files) {
   test(`変数の状態の変化：${f}`, () => {
     const expected = results.get(f);
     assert.equal(expected.error, null);
-    const dbg = new JavaDebugger(readFileSync(join(ROOT, f), 'utf8'), { maxSteps: 2_000_000 });
+    const dbg = new JavaDebugger(readFileSync(join(ROOT, f), 'utf8'), { maxSteps: 2_000_000, stdin: stdinOf(f) });
     assert.deepEqual(stateChanges(dbg.trace), expected.changes);
   });
 }

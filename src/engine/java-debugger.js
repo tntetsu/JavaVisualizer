@@ -41,6 +41,8 @@ const EXCEPTION_HINTS = {
   NegativeArraySizeException: '配列の長さに負の数を指定しました',
   ClassCastException: 'その型には変換（キャスト）できません',
   StackOverflowError: 'メソッドの呼び出しが深くなりすぎました（再帰が止まっていない可能性があります）',
+  InputMismatchException: '入力欄の値を、読もうとした型（int など）として読めませんでした',
+  NoSuchElementException: '入力欄に、読む値（行）がもうありません',
 };
 
 /** 捕まえられなかった例外のメッセージ（日本語の説明＋Java の表示） */
@@ -53,17 +55,17 @@ function uncaughtMessage(exc, loc) {
 /**
  * Java のソースを実行してトレースを作る。
  * @param {string} source
- * @param {{ maxSteps?: number }} [options]
+ * @param {{ maxSteps?: number, stdin?: string }} [options] stdin：Scanner が読む入力欄の内容（ADR-005）
  * @returns {{ ast, trace, consoleLogs }}
  * @throws {JavaSyntaxError|JavaCompileError|ExecutionError}
  */
-export function runJava(source, { maxSteps = 100_000 } = {}) {
+export function runJava(source, { maxSteps = 100_000, stdin = '' } = {}) {
   const ast = parse(source);
   const classes = buildClasses(ast);
   check(ast, classes);
   resetRandom();
   const recorder = createRecorder(maxSteps);
-  const rt = createRuntime(recorder, classes);
+  const rt = createRuntime(recorder, classes, { stdin });
   try {
     evaluate(ast, rt.global, rt, 0, 0);
   } catch (e) {
@@ -94,7 +96,7 @@ export class JavaDebugger extends TraceDebugger {
    */
   constructor(source, options = {}) {
     const maxSteps = options.maxSteps ?? 100_000;
-    const { ast, trace, consoleLogs } = runJava(source, { maxSteps });
+    const { ast, trace, consoleLogs } = runJava(source, { maxSteps, stdin: options.stdin ?? '' });
     super({ source, trace, ast, consoleLogs, maxSteps });
   }
 }

@@ -116,9 +116,29 @@ const STATIC_FIELDS = {
   Long: { MAX_VALUE: 'long', MIN_VALUE: 'long' },
   Double: { MAX_VALUE: 'double', MIN_VALUE: 'double', POSITIVE_INFINITY: 'double', NEGATIVE_INFINITY: 'double', NaN: 'double' },
   Math: { PI: 'double', E: 'double' },
-  System: { out: 'PrintStream' },
+  System: { out: 'PrintStream', in: 'InputStream' },
 };
 const BUILTIN_NAMES = new Set(Object.keys({ ...STATIC_RETURNS, ...STATIC_FIELDS }));
+
+/** Scanner のメソッドの戻り値の型（ADR-005） */
+const SCANNER_METHODS = {
+  nextInt: 'int', nextLong: 'long', nextDouble: 'double', nextBoolean: 'boolean', next: 'String', nextLine: 'String',
+  hasNext: 'boolean', hasNextInt: 'boolean', hasNextDouble: 'boolean', hasNextLine: 'boolean', close: 'void',
+};
+
+/** java.util のクラス（import が要る） */
+const JAVA_UTIL = new Set(['Scanner', 'Arrays']);
+
+/** import した java.util のクラスの名前（import java.util.*; はすべて） */
+function importedUtil(imports) {
+  const out = new Set();
+  for (const line of imports ?? []) {
+    const m = line.match(/^import\s+java\.util\.(\*|\w+)\s*;/);
+    if (!m) continue;
+    if (m[1] === '*') JAVA_UTIL.forEach(n => out.add(n)); else out.add(m[1]);
+  }
+  return out;
+}
 
 // ── return の忘れ（文が「最後まで進めるか」。JLS 14.22 の簡略版） ───────────
 
@@ -173,6 +193,12 @@ class Locals {
  * @param {Map<string, import('./objects.js').JClass>} classes
  */
 export function check(ast, classes) {
+  const imported = importedUtil(ast.imports);
+  const needImport = (name, loc) => {
+    if (JAVA_UTIL.has(name) && !classes.has(name) && !imported.has(name)) {
+      throw err(`${name} を使うには、ファイルの先頭に import java.util.${name}; を書きます`, loc, 'cannot find symbol');
+    }
+  };
   for (const cls of classes.values()) {
     const fieldCtx = { cls, isStatic: false, method: null };
     for (const f of cls.fields) {
@@ -196,6 +222,7 @@ export function check(ast, classes) {
     const base = t.replace(/(\[\])+$/, '');
     if (base === 'float') throw err('float はまだ対応していません（小数は double を使います）', loc, 'float is not supported yet');
     if (isPrimitiveType(base) || base === 'var' || base === 'void' || base === 'String' || base === 'Object') return;
+    if (base === 'Scanner') { needImport(base, loc); return; }
     if (classes.has(base) || BUILTIN_CLASSES.has(base) || ['Integer', 'Long', 'Double', 'Character', 'Boolean'].includes(base)) return;
     throw err(`型 ${base} が見つかりません（クラス名のつづりを確かめてください）`, loc, 'cannot find symbol');
   }
@@ -305,7 +332,7 @@ export function check(ast, classes) {
     const sf = findStaticField(ctx.cls, name);
     if (sf) return sf.field.type;
     if (classes.has(name) || BUILTIN_CLASSES.has(name)) return `class:${name}`;
-    if (BUILTIN_NAMES.has(name)) return `builtin:${name}`;
+    if (BUILTIN_NAMES.has(name)) { needImport(name, loc); return `builtin:${name}`; }
     throw err(`「${name}」という変数は宣言されていません（つづりと、宣言した場所（{ } の範囲）を確かめてください）`, loc, 'cannot find symbol');
   }
 
@@ -346,6 +373,10 @@ export function check(ast, classes) {
       return cls ? userCall(cls, name, { staticOnly: true }) : null;
     }
     if (ot === 'PrintStream') return 'void';
+    if (ot === 'Scanner') {
+      if (!(name in SCANNER_METHODS)) throw err(`Scanner に ${name}(…) はありません（まだ対応していないメソッドかもしれません）`, c.loc, 'cannot find symbol');
+      return SCANNER_METHODS[name];
+    }
     if (ot === 'String') return STRING_METHODS[name] ?? null;
     if (isPrimitiveType(ot)) throw err(`${ot} の値にはメソッドがありません（${name}(…) は呼べません）`, c.loc, `${ot} cannot be dereferenced`);
     const cls = classes.get(ot);

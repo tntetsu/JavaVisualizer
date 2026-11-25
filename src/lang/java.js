@@ -78,6 +78,7 @@ export const createJavaProfile = (samples, { groups, defaultSample } = {}) => ({
   Debugger: JavaDebugger,
   ExecutionError,
   editorExtension: () => java(),
+  supportsInput: true,   // 入力欄を出し、実行時に { stdin } を渡す（Scanner。ADR-005）
   samples,
   sampleGroups: groups ?? [{ label: '─ Samples ─', keys: Object.keys(samples) }],
   defaultSample: defaultSample ?? Object.keys(samples)[0],

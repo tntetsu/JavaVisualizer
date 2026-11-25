@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
 /**
  * TraceStates.java — 本物の Java でプログラムをステップ実行し、変数の状態の変化の列を JSON で出す
  *
- *   java tests/tools/TraceStates.java <program.java>
+ *   java tests/tools/TraceStates.java <program.java> [入力のファイル]
  *
  * PyVisualizer の tests/tools/trace_states.py に当たる。JDI（jdk.jdi）を使う：
  * 1. プログラムを javax.tools で -g（変数名の情報）を付けて一時ディレクトリにコンパイルする
@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
  *
  * 値の書き方（tests/line-state.test.js の srepr と同じ）：int・long は 10 進、double は Double.toString、
  * char は 'a'、String は "abc"、null、配列は [1, 2]、オブジェクトは ClassName{a=1, b=2}（フィールドは名前の順、
- * 深さ 3 まで）、例外は <ArithmeticException>。
+ * 深さ 3 まで）、例外は <ArithmeticException>、JDK のクラスのオブジェクト（Scanner など）は <Scanner>。
  * 出力：{ "changes": [...], "error": null または例外のクラス名, "output": 標準出力 }
  */
 public class TraceStates {
@@ -54,6 +54,10 @@ public class TraceStates {
         ca.get("main").setValue(mainClass);
         ca.get("options").setValue("-cp " + dir + " -Xss16m");
         VirtualMachine vm = lc.launch(ca);
+        // 入力（Scanner）：対象の JVM の標準入力に書いて閉じる
+        try (var in = vm.process().getOutputStream()) {
+            if (args.length > 1) in.write(Files.readAllBytes(Path.of(args[1])));
+        }
         EventRequestManager erm = vm.eventRequestManager();
 
         ExceptionRequest exr = erm.createExceptionRequest(null, false, true);   // 捕まえられなかった例外
@@ -150,6 +154,8 @@ public class TraceStates {
         if (v instanceof ObjectReference o) {
             ReferenceType t = o.referenceType();
             if (isThrowable(t)) return "<" + t.name().replaceFirst("^.*\\.", "") + ">";
+            // JDK のクラスのオブジェクト（Scanner など）は、内部の状態を書かずに型名だけにする
+            if (t.name().matches("^(java|javax|jdk|sun)\\..*")) return "<" + t.name().replaceFirst("^.*\\.", "") + ">";
             if (depth >= 3) return t.name() + "{…}";
             List<Field> fs = new ArrayList<>();
             for (Field f : t.allFields()) if (!f.isStatic()) fs.add(f);

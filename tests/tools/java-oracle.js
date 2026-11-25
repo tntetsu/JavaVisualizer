@@ -5,7 +5,7 @@
  * - exception：捕まえられなかった例外の 1 行（java.lang.ArithmeticException: / by zero）。なければ null
  * - compileError：最初のコンパイルエラー { line, message }（message は javac の文面）。なければ null
  *
- * 本物の Java は `java ファイル.java`（JDK 11 以降の単一ファイルの実行）で動かす。
+ * 本物の Java は `java ファイル.java`（JDK 11 以降の単一ファイルの実行）で動かす。入力（Scanner）は、どちらにも同じ文字列を渡す。
  */
 import { execFile } from 'node:child_process';
 import { joinConsoleLines } from 'js-interpreter/core';
@@ -21,9 +21,9 @@ export function normalizeException(line) {
 }
 
 /** 本物の Java で実行する */
-export function runReal(file, { timeout = 20000 } = {}) {
+export function runReal(file, { timeout = 20000, stdin = '' } = {}) {
   return new Promise((resolve) => {
-    execFile('java', [file], { timeout, maxBuffer: 1 << 24 }, (error, stdout, stderr) => {
+    const child = execFile('java', [file], { timeout, maxBuffer: 1 << 24 }, (error, stdout, stderr) => {
       let exception = null, compileError = null;
       const m = stderr.match(/^Exception in thread "main" (.*)$/m);
       if (m) exception = normalizeException(m[1]);
@@ -32,14 +32,15 @@ export function runReal(file, { timeout = 20000 } = {}) {
       if (error && !m && !c) exception = `<<java failed: ${stderr.trim().split('\n')[0]}>>`;
       resolve({ stdout, exception, compileError });
     });
+    child.stdin.end(stdin);
   });
 }
 
 /** JavaVisualizer のエンジンで実行する */
-export function runOurs(source) {
+export function runOurs(source, stdin = '') {
   const out = (logs) => joinConsoleLines(logs).map(l => l.text + '\n').join('');
   try {
-    const { consoleLogs } = runJava(source, { maxSteps: 2_000_000 });
+    const { consoleLogs } = runJava(source, { maxSteps: 2_000_000, stdin });
     // 最後の行が改行で終わっていない出力（print）も、本物と同じく改行なしにする
     return { stdout: rawOutput(consoleLogs) ?? out(consoleLogs), exception: null, compileError: null };
   } catch (e) {

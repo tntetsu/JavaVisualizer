@@ -17,7 +17,7 @@
 - 言語ごとの差（ノードの分類・値の見せ方・エディタ・サンプル・エラーメッセージの英語化）は**言語プロファイル**でフロントエンドに渡す
 - パーサーは `@lezer/java` ＋ 自前の AST 変換（構文エラーの説明は自前）
 
-**現在のステータス**: 計画を書いたところ（2026-11-25）。次は **Phase 0（スパイク）**：`@lezer/java` の評価と、小さな評価器を画面に載せて全ビューを確認する（[docs/development-plan.md](docs/development-plan.md) 4 節）。GitHub のリポジトリはまだ作っていない（作るとき・公開するときは確認を取る）。
+**現在のステータス**: Phase 0（スパイク）が終わった（2026-11-25、[docs/phase0-report.md](docs/phase0-report.md)）。結論は Go（共通の契約と `@lezer/java` で進める）。共通コアと画面を変えずに Java のエンジンを載せ、本物の Java との比較（出力・例外・コンパイルエラー・JDI による変数の状態・書式）がすべて一致した。値の表現（ADR-002）・AST とトレース（ADR-003）・静的な検査の範囲（ADR-004）を決めた。次は **Phase 1（土台の調整）**：制御フロー・置換・式評価のビューを Java の AST に合わせる、型の表示、最後の時点の見せ方など（報告書 8 節）。GitHub のリポジトリはまだ作っていない（作るとき・公開するときは確認を取る）。
 
 ## 関連リポジトリ
 
@@ -89,11 +89,31 @@ PyVisualizer で分かったこと（同じ失敗を避ける）：
 
 ## コマンド
 
-Phase 0 で整える（PyVisualizer と同じ形にする予定）。
-
 ```bash
 npm install                     # 兄弟ディレクトリに ../JSInterpreter-core・../JSVisualizer-multilang が必要（file: 依存）
-npm test                        # 全テスト（本物の Java との比較に java が必要）
+npm test                        # 全テスト（本物の Java との比較に java が必要。約 50 秒）
 node scripts/build.mjs --serve  # ビルドして http://127.0.0.1:8124/ で確認（PyVisualizer は 8123）
+node scripts/run.mjs Main.java  # エンジンだけで実行（出力と例外を表示）
 java Main.java                  # 本物の Java で実行（比較の正解）
+java tests/tools/TraceStates.java Main.java   # 本物の Java の変数の状態の変化（JDI）
+node scripts/capture-spike.mjs <出力先>        # 全サンプル × 全タブのスクリーンショットとブラウザのエラー
 ```
+
+## 構成（Phase 0 時点）
+
+| 役割 | ファイル |
+|---|---|
+| ソース → AST・構文エラーの説明 | `src/engine/parse.js` |
+| 静的な検査（コンパイルエラー。ADR-004） | `src/engine/check.js` |
+| 評価器 | `src/engine/interpreter.js` |
+| 値の表現・表示（ADR-002） | `src/engine/values.js` |
+| クラス・インスタンス・例外 | `src/engine/objects.js` |
+| 組み込みのクラス・メソッド・書式 | `src/engine/builtins.js` |
+| デバッガー（ノードの分類。ADR-003） | `src/engine/java-debugger.js` |
+| 言語プロファイル | `src/lang/java.js`、`src/register-java.js`、`src/app.js` |
+| 本物の Java との比較 | `tests/oracle.test.js`（出力・例外・コンパイルエラー）、`tests/line-state.test.js`（`tests/tools/TraceStates.java`、JDI）、`tests/format.test.js`（`tests/tools/FormatEcho.java`） |
+
+Java で分かったこと：
+
+- エラーを作る場所で、日本語の説明と `javac` の英語の文面を対にする（`compileError(日本語, loc, javac)`）。対になっていることは `tests/messages-en.test.js` が調べる
+- 変数の状態の比較は、JDI の行単位のステップに合わせ、「同じフレームで行が変わった最初の enter のイベント」をチェックポイントにする（文の一覧を持たない）。新しいノード型を足しても、チェックポイントの一覧を直す必要はない

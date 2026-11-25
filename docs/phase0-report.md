@@ -149,7 +149,7 @@
 
 ## 追記（2026-11-25）：Phase 0 のあとの決定
 
-- **3.2 節 a（イベントの値が複製されない）を直した**。誤りのまま使わせない（JS 版も含む）方針。共通コアの `Recorder.record` で、exit のイベントの値を、変数のスナップショットと同じ対応表で複製する（JSInterpreter の ADR-017）。作業ブランチ（`feature/interp-core`）に入れ、Python 版・Java 版のテストがすべて通ることを確かめた。JS 版の公開版への反映（JSInterpreter の master）は、ADR-016 と同じ手順で進める
+- **3.2 節 a（イベントの値が複製されない）を直した**。誤りのまま使わせない（JS 版も含む）方針。共通コアの `Recorder.record` で、exit のイベントの値を、変数のスナップショットと同じ対応表で複製する（JSInterpreter の ADR-017）。作業ブランチ（`feature/interp-core`）に入れ、Python 版・Java 版のテストがすべて通ることを確かめた。11-25 の授業と課題のあとに、JS 版（JSInterpreter の master と JSVisualizer の再デプロイ、18:40）と Python 版（共通コアのタグ `multilang-core-2026.11.25.2` に参照を上げて再デプロイ、18:43）の公開版にも反映した。BhvVisualizer の評価計画 3.9 節に記録した
 - **最後の時点で変数が空になるのは、そのままにする**（ADR-003）
 
 ## 9. 再現方法

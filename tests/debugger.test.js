@@ -94,3 +94,26 @@ test('式の値は、その式を評価した時点の中身で記録される�
   assert.deepEqual([...ids[0].value], [3, 1]);
   assert.equal(ids[0].value, ids[0].frameEnvs.at(-1).arr);
 });
+
+test('呼び出し先（f・obj.m）は呼び出しの最初の子として記録され、ユーザーのメソッドは JSFunction の印、組み込みは JS の関数（ADR-003 追記）', () => {
+  const dbg = new JavaDebugger(wrap('        int r = twice(3);\n        System.out.println(r);', 'class X {}\n').replace('public class Main {\n', 'public class Main {\n    static int twice(int k) { return k * 2; }\n'));
+  const calls = dbg.trace.map((e, i) => [e, i]).filter(([e]) => e.phase === 'enter' && e.nodeType === 'CallExpression');
+  const calleeOf = (i) => dbg.trace[dbg.trace[i + 1].matchIdx];
+  const user = calleeOf(calls[0][1]);
+  assert.equal(user.nodeType, 'Identifier');
+  assert.equal(user.value.__type__, 'JSFunction');
+  assert.equal(user.value.name, 'twice');
+  const println = calleeOf(calls[1][1]);
+  assert.equal(println.nodeType, 'MemberExpression');
+  assert.equal(typeof println.value, 'function');
+});
+
+test('制御フローのビュー（Java のプロファイル）：クラスの中のメソッドが描かれ、空のグローバルは出ない', async () => {
+  const { setLanguage } = await import('js-visualizer/src/lang/index.js');
+  const { createJavaProfile } = await import('../src/lang/java.js');
+  setLanguage(createJavaProfile({}));
+  const src = readFileSync(join(ROOT, 'samples', '05_bubble_sort.java'), 'utf8');
+  const dbg = new JavaDebugger(src);
+  const scopes = new TraceBuilder(dbg.trace, src, dbg.ast).buildCFG();
+  assert.deepEqual(scopes.map(s => s.name), ['bubbleSort', 'main']);
+});

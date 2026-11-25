@@ -23,6 +23,7 @@ export const javaValueModel = {
     }
     if (v instanceof JDouble) return 'number';
     if (v instanceof JChar || v instanceof JString) return 'string';
+    if (v.__type__ === 'JSFunction') return 'function';   // 呼び出し先のメソッド（ADR-003 追記）
     if (isClass(v) || isBuiltin(v)) return 'other';
     if (isArray(v)) return 'sequence';
     if (isObject(v)) return 'object';
@@ -83,6 +84,8 @@ export const createJavaProfile = (samples, { groups, defaultSample } = {}) => ({
     exit:  ['VariableDeclaration', 'AssignmentExpression', 'UpdateExpression', 'ReturnStatement', 'ThrowStatement', 'CallExpression',
       'LoopBinding', 'CatchBinding', 'CaseMatch', 'FieldDeclaration'],
   },
+  // 制御フローのビュー：クラスの中のメソッドを描き、switch を case ごとの分岐として描く（JSVisualizer の ADR-055 追記）
+  controlFlow: { classMethods: true, switchCases: true },
   valueModel: javaValueModel,
   syntaxTokens: [
     { cls: 'tok-comment', re: /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g },

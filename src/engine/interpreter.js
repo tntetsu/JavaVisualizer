@@ -109,6 +109,8 @@ export function createRuntime(recorder, classes) {
     global: new JScope(null, 'global'),
     interned: new Map(),
     callCount: 0,
+    methodValues: new Map(),   // メソッドの組 → 呼び出し先の値（methodValue）
+    nativeValues: new Map(),   // 組み込みのメソッドの名前 → 呼び出し先の値（nativeValue）
     hashes: new WeakMap(),
     nextHash: 0x1b6d3586,
   };
@@ -932,10 +934,16 @@ function evalCall(node, env, rt, d, callDepth) {
     return undefined;
   }
 
+  // 呼び出し先（f・obj.m）を、引数より先に 1 つのイベントとして記録する（ADR-003 追記）。値は、ユーザーのメソッドなら
+  // methodValue()（画面がユーザー定義の関数の呼び出しと見なす形）、組み込みのメソッドなら JS の関数。
+  // JS・Python と同じく「呼び出しの最初の子が呼び出し先」になるので、置換のビューなどがそのまま使える
+  const recordCallee = (fn) => rt.recorder.record(callee, env, d, callDepth, fn);
+
   // f(…)：同じクラス（と上のクラス）のメソッド
   if (callee.type === 'Identifier') {
     const cands = ctx.cls ? findMethods(ctx.cls, callee.name) : [];
     if (!cands.length) throw compileError(`メソッド ${callee.name} が見つかりません`, callee.loc, 'cannot find symbol');
+    recordCallee(() => methodValue(rt, cands));
     const args = evArgs();
     let m = chooseMethod(cands, args, node.loc, callee.name);
     if (!m.static) {
@@ -948,13 +956,19 @@ function evalCall(node, env, rt, d, callDepth) {
   const name = callee.property.name;
   // super.m(…)：上のクラスのメソッドを、オーバーライドを経由せずに呼ぶ
   if (callee.object.type === 'Super') {
-    const args = evArgs();
     const sup = ctx.cls.superClass;
+    const cands = sup.builtin ? [] : findMethods(sup, name);
+    recordCallee(() => (cands.length ? methodValue(rt, cands) : nativeValue(rt, name)));
+    const args = evArgs();
     if (sup.builtin) return objectMethod(ctx.thisObj, name, args, rt, node.loc);
-    return callMethod(chooseMethod(findMethods(sup, name), args, node.loc, name), ctx.thisObj, args, rt, d, callDepth, node.loc);
+    return callMethod(chooseMethod(cands, args, node.loc, name), ctx.thisObj, args, rt, d, callDepth, node.loc);
   }
 
-  const obj = ev(callee.object);
+  let obj;
+  recordCallee(() => {
+    obj = evaluate(callee.object, env, rt, d + 1, callDepth);
+    return calleeValue(obj, name, rt);
+  });
   const args = evArgs();
   if (isBuiltin(obj)) {
     const f = obj.members[name];
@@ -990,6 +1004,44 @@ function evalCall(node, env, rt, d, callDepth) {
   }
   if (isArray(obj) && name === 'clone') return makeArray(obj.__jelem, obj);
   throw compileError(`${typeName(obj)} の値に ${name}(…) はありません`, callee.loc, 'cannot find symbol');
+}
+
+/**
+ * ユーザーのメソッド（同じ名前のオーバーロードの組）を表す値。呼び出し先のイベントの値にする。
+ * __type__: 'JSFunction' は、画面がユーザー定義の関数と見なす印（スナップショットでも複製されない）
+ */
+function methodValue(rt, cands) {
+  const key = cands[0];
+  if (!rt.methodValues.has(key)) {
+    const v = { __type__: 'JSFunction', name: key.name, params: key.params.map(p => ({ type: 'Identifier', name: p })) };
+    Object.defineProperty(v, 'javaMethods', { value: cands, enumerable: false });
+    rt.methodValues.set(key, v);
+  }
+  return rt.methodValues.get(key);
+}
+
+/** 組み込みのメソッド（String・Object などのメソッド）を表す値（JS の関数。画面はネイティブの関数と見なす） */
+function nativeValue(rt, name) {
+  if (!rt.nativeValues.has(name)) {
+    const f = function native() {};
+    Object.defineProperty(f, 'name', { value: name });
+    rt.nativeValues.set(name, f);
+  }
+  return rt.nativeValues.get(name);
+}
+
+/** obj.name(…) の呼び出し先の値 */
+function calleeValue(obj, name, rt) {
+  if (isBuiltin(obj)) return typeof obj.members[name] === 'function' ? obj.members[name] : nativeValue(rt, name);
+  if (isClass(obj)) {
+    const cands = findMethods(obj, name).filter(x => x.static);
+    return cands.length ? methodValue(rt, cands) : nativeValue(rt, name);
+  }
+  if (isJObject(obj)) {
+    const cands = findMethods(obj.cls, name).filter(x => !x.static);
+    return cands.length ? methodValue(rt, cands) : nativeValue(rt, name);
+  }
+  return nativeValue(rt, name);
 }
 
 /** Object・Throwable から受け継ぐメソッド */

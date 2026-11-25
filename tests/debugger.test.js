@@ -85,3 +85,12 @@ for (const f of readdirSync(join(ROOT, 'samples')).filter(x => x.endsWith('.java
     b.buildCFG();
   });
 }
+
+test('式の値は、その式を評価した時点の中身で記録される（共通コアの ADR-017。式評価のビューで配列が最後の状態にならない）', () => {
+  const src = wrap('        int[] arr = {3, 1};\n        int tmp = arr[0];\n        arr[0] = arr[1];\n        arr[1] = tmp;');
+  const dbg = new JavaDebugger(src);
+  // 4 行目の arr[0] = arr[1] で評価した arr は、その時点の {3, 1}
+  const ids = dbg.trace.filter(e => e.phase === 'exit' && e.nodeType === 'Identifier' && e.loc.line === 5);
+  assert.deepEqual([...ids[0].value], [3, 1]);
+  assert.equal(ids[0].value, ids[0].frameEnvs.at(-1).arr);
+});

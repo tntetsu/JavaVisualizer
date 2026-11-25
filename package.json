@@ -1,0 +1,21 @@
+{
+  "name": "java-visualizer",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Java program execution visualizer for programming education",
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\""
+  },
+  "dependencies": {
+    "@codemirror/lang-java": "^6.0.2",
+    "@lezer/common": "^1.5.6",
+    "@lezer/java": "^1.2.0",
+    "js-interpreter": "file:../JSInterpreter-core"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "js-visualizer": "file:../JSVisualizer-multilang",
+    "playwright": "1.60"
+  }
+}

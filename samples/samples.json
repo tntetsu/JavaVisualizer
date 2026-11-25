@@ -1,0 +1,113 @@
+{
+  "groups": [
+    {
+      "label": "─ Search ─",
+      "items": [
+        [
+          "07_linear_search",
+          "Linear Search"
+        ],
+        [
+          "08_binary_search",
+          "Binary Search"
+        ]
+      ]
+    },
+    {
+      "label": "─ Sort (basic) ─",
+      "items": [
+        [
+          "05_bubble_sort",
+          "Bubble Sort"
+        ],
+        [
+          "06_selection_sort",
+          "Selection Sort"
+        ]
+      ]
+    },
+    {
+      "label": "─ Sort (advanced) ─",
+      "items": [
+        [
+          "09_quick_sort",
+          "Quick Sort"
+        ],
+        [
+          "10_merge_sort",
+          "Merge Sort"
+        ]
+      ]
+    },
+    {
+      "label": "─ Sort (objects) ─",
+      "items": [
+        [
+          "11_sort_objects",
+          "Sort objects (numeric key)"
+        ]
+      ]
+    },
+    {
+      "label": "─ Math / Algorithms ─",
+      "items": [
+        [
+          "03_euclid_loop",
+          "Euclid GCD (loop)"
+        ],
+        [
+          "04_euclid_recursive",
+          "Euclid GCD (recursive)"
+        ],
+        [
+          "02_factorial",
+          "Factorial (recursive)"
+        ],
+        [
+          "01_fibonacci",
+          "Fibonacci (recursive)"
+        ],
+        [
+          "13_fibonacci_dp",
+          "Fibonacci (DP)"
+        ]
+      ]
+    },
+    {
+      "label": "─ Data Structures ─",
+      "items": [
+        [
+          "14_binary_tree",
+          "Binary Tree"
+        ],
+        [
+          "19_linked_list",
+          "Linked List"
+        ]
+      ]
+    },
+    {
+      "label": "─ Java ─",
+      "items": [
+        [
+          "30_types_and_references",
+          "Types & references"
+        ],
+        [
+          "25_exceptions",
+          "Exceptions (try / catch)"
+        ]
+      ]
+    },
+    {
+      "label": "─ Classes ─",
+      "items": [
+        [
+          "24_class_inheritance",
+          "Class & Inheritance"
+        ]
+      ]
+    }
+  ],
+  "default": "01_fibonacci"
+}

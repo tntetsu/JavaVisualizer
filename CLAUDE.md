@@ -28,6 +28,10 @@
 | [../PyVisualizer](../PyVisualizer) | Python 版（同じ構成の先行例） | **手本**。構成・テストの作り方・ADR・文書の書き方をそろえる（下の「PyVisualizer の手本」） |
 | [../BhvVisualizer](../BhvVisualizer) | 学習ログの収集・分析（Firebase） | 授業で本番稼働中。学期中は触らない |
 
+## リポジトリ全体の地図
+
+Visualizer のファミリーと、その記事・論文・ノートのリポジトリの一覧・作った順番・依存と参照の関係は、[../agentic-coding-notes/docs/projects-map.md](../agentic-coding-notes/docs/projects-map.md)（非公開）にまとめている。ここには写さず、このリポジトリに要る依存先だけを書く。新しいリポジトリを作ったら、地図に 1 行足す。
+
 ## 作業上の注意
 
 ### 授業で本番稼働中のリポジトリ

@@ -1,10 +1,12 @@
 # JavaVisualizer
 
+> 🚀 **[Live Demo](https://tntetsu.github.io/JavaVisualizer/)** — GitHub Pages でホスト中
+
 > [English README](README.en.md)
 
-> 📖 **[使い方（利用者向けマニュアル）](manual/manual.html)** — 画面右上の「?」ボタンからも開けます
+> 📖 **[使い方（利用者向けマニュアル）](https://tntetsu.github.io/JavaVisualizer/manual.html)** — 画面右上の「?」ボタンからも開けます
 
-Java プログラムの実行過程をステップごとに可視化する、プログラミング教育用の Web アプリケーションです（開発中・公開前）。
+Java プログラムの実行過程をステップごとに可視化する、プログラミング教育用の Web アプリケーションです。
 
 JavaScript 版の [JSVisualizer](https://github.com/tntetsu/JSVisualizer)・Python 版の [PyVisualizer](https://github.com/tntetsu/PyVisualizer) と同じ画面・同じ **12 種類の可視化ビュー**で、Java のプログラムを式・文・メソッドの呼び出しの各粒度でステップ実行できます。
 
@@ -36,7 +38,7 @@ Java のプログラムは、JavaVisualizer に組み込んだ Java のインタ
 
 ### ステップ実行と可視化ビュー
 
-ステップ実行（式・人・文・関数の 4 粒度 × 前後）と 12 種類のビュー（変数・実行トレース・コールスタック・ライフタイム・メモリ・式評価・置換・制御フロー・ヒートマップ・呼び出しツリー・配列・オブジェクト）は JSVisualizer と共通です。詳しくは[マニュアル](manual/manual.html)を見てください。
+ステップ実行（式・人・文・関数の 4 粒度 × 前後）と 12 種類のビュー（変数・実行トレース・コールスタック・ライフタイム・メモリ・式評価・置換・制御フロー・ヒートマップ・呼び出しツリー・配列・オブジェクト）は JSVisualizer と共通です。詳しくは[マニュアル](https://tntetsu.github.io/JavaVisualizer/manual.html)を見てください。
 
 ## 使える Java の範囲
 

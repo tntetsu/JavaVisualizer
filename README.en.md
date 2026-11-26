@@ -1,10 +1,12 @@
 # JavaVisualizer
 
+> 🚀 **[Live Demo](https://tntetsu.github.io/JavaVisualizer/)** — hosted on GitHub Pages
+
 > [日本語の README](README.md)
 
-> 📖 **[User manual](manual/manual.en.html)** — also available from the “?” button at the top right of the app
+> 📖 **[User manual](https://tntetsu.github.io/JavaVisualizer/manual.en.html)** — also available from the “?” button at the top right of the app
 
-An educational web application that visualizes how a Java program runs, step by step (under development, not yet published).
+An educational web application that visualizes how a Java program runs, step by step.
 
 It uses the same screen and the same **12 visualization views** as [JSVisualizer](https://github.com/tntetsu/JSVisualizer) (JavaScript) and [PyVisualizer](https://github.com/tntetsu/PyVisualizer) (Python), and lets you step through Java programs by expression, statement, and method call.
 
@@ -36,7 +38,7 @@ As in real Java, the whole program is checked before it runs, catching mistakes 
 
 ### Stepping and views
 
-Stepping (four granularities — Expr, Human, Stmt, Func — forward and backward) and the 12 views are shared with JSVisualizer. See the [manual](manual/manual.en.html) for details.
+Stepping (four granularities — Expr, Human, Stmt, Func — forward and backward) and the 12 views are shared with JSVisualizer. See the [manual](https://tntetsu.github.io/JavaVisualizer/manual.en.html) for details.
 
 ## Supported Java
 

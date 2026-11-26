@@ -100,6 +100,10 @@
         [
           "24_class_inheritance",
           "Class & Inheritance"
+        ],
+        [
+          "29_interfaces",
+          "Interfaces & polymorphism"
         ]
       ]
     },
@@ -121,6 +125,10 @@
         [
           "27_array_list",
           "ArrayList & StringBuilder"
+        ],
+        [
+          "31_enum_switch",
+          "enum & switch expressions"
         ],
         [
           "28_hash_map",

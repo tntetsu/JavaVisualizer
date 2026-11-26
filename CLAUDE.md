@@ -17,7 +17,7 @@
 - 言語ごとの差（ノードの分類・値の見せ方・エディタ・サンプル・エラーメッセージの英語化）は**言語プロファイル**でフロントエンドに渡す
 - パーサーは `@lezer/java` ＋ 自前の AST 変換（構文エラーの説明は自前）
 
-**現在のステータス**: Phase 0〜4 が終わり、2026-11-26 に公開した（https://tntetsu.github.io/JavaVisualizer/ 、リポジトリ `tntetsu/JavaVisualizer` も公開）。**Phase 5（対象の拡大）を進めている**：`ArrayList` など（ADR-007）、インターフェース・`enum`・`switch` 式など（ADR-008）、`HashMap`・`HashSet` など（ADR-009）は済み。次はサンプル（インターフェース・`enum`）・マニュアルと README の更新・Phase 5 の報告書（[docs/development-plan.md](docs/development-plan.md) の 4.1 節の Phase 5）。公開版はまだ Phase 4 の時点のまま（Phase 5 の機能は未公開）。**公開（デプロイ）はワークフローの手動の実行（workflow_dispatch）で行い、main への push ではテストとビルドだけ**。公開版を変える操作（手動の実行）は、実行する前に確認を取る。
+**現在のステータス**: Phase 0〜4 が終わり、2026-11-26 に公開した（https://tntetsu.github.io/JavaVisualizer/ 、リポジトリ `tntetsu/JavaVisualizer` も公開）。**Phase 5（対象の拡大）も済んだ**（2026-11-26、`docs/phase5-report.md`）：`ArrayList` など（ADR-007）、インターフェース・`enum`・`switch` 式など（ADR-008）、`HashMap`・`HashSet` など（ADR-009）、サンプル 28 本、マニュアル・README の更新。残りは公開とラムダ式（必要なら）。公開版はまだ Phase 4 の時点のまま（Phase 5 の機能は未公開）。**公開（デプロイ）はワークフローの手動の実行（workflow_dispatch）で行い、main への push ではテストとビルドだけ**。公開版を変える操作（手動の実行）は、実行する前に確認を取る。
 
 ## 関連リポジトリ
 

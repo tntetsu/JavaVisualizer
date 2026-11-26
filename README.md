@@ -42,9 +42,9 @@ Java のプログラムは、JavaVisualizer に組み込んだ Java のインタ
 
 ## 使える Java の範囲
 
-`int`・`long`・`double`・`char`・`boolean`・`String`・配列（1 次元・2 次元）、`if`・`while`・`do`／`while`・`for`・拡張 `for`・`switch`、メソッド（`static`・インスタンス・再帰・オーバーロード）、クラス（フィールド・コンストラクタ・継承・`super`）、例外（`try`／`catch`／`finally`・`throw`・自作の例外）、`System.out.println`・`printf`・`String` の主なメソッド・`Math`・`Integer.parseInt`・`Arrays`・`Scanner`。
+`int`・`long`・`double`・`char`・`boolean`・`String`・配列（1 次元・2 次元）、`if`・`while`・`do`／`while`・`for`・拡張 `for`・`switch`（`switch` 式も）、メソッド（`static`・インスタンス・再帰・オーバーロード）、クラス（フィールド・コンストラクタ・継承・`super`・抽象クラス・インターフェース・`enum`）、例外（`try`／`catch`／`finally`・`throw`・自作の例外）、`System.out.println`・`printf`・`String` の主なメソッド・`Math`・`Integer.parseInt`・`Arrays`・`Scanner`、`ArrayList`・`HashMap`・`HashSet`（`TreeMap`・`LinkedHashMap` などを含む。`HashMap` の順序も本物と同じ）・`StringBuilder`・ラッパー型とジェネリクスの型。
 
-まだ使えないもの：`float`、インターフェース、`enum`、`record`、ラムダ式、ジェネリクス、`ArrayList`・`HashMap`、内部クラス、`switch` 式、ファイルの読み書き（[開発計画書](docs/development-plan.md) の Phase 5）。
+まだ使えないもの：`float`、`record`、ラムダ式・ストリーム、ジェネリクスのクラスを自分で作ること、`static` でない内部クラス、ファイルの読み書き。
 
 ## 動かし方
 

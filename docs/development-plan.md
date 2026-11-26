@@ -62,7 +62,7 @@ Java は実行の前にコンパイルし、型の誤りなどを見つける。
 | **2. エンジンの MVP** | 5 節の範囲。本物の Java との比較テスト（出力・例外・変数の状態の変化） | 比較テストがすべて通る | **済み**（2026-11-26） |
 | **3. 言語プロファイル** | 値の見せ方（`valueModel`）・色分け・実行トレースの行・エラーメッセージの英語化 | Java の値が Java の書き方で表示される。ADR の例のテスト | **済み**（2026-11-26） |
 | **4. アプリ** | サンプル（JS 版の 21 本に対応）、マニュアル（日本語・英語）、デプロイの準備、README | 全サンプル × 全タブでブラウザのエラー 0 件 | **済み**（2026-11-26）。2026-11-26 に公開（https://tntetsu.github.io/JavaVisualizer/） |
-| **5. 対象の拡大** | `ArrayList`・`HashMap`・インターフェース・`switch` の新しい形など、授業で使う範囲まで | 比較テストがすべて通る | **進行中**（4.1 節の Phase 5） |
+| **5. 対象の拡大** | `ArrayList`・`HashMap`・インターフェース・`switch` の新しい形など、授業で使う範囲まで | 比較テストがすべて通る | **済み**（2026-11-26）。公開は未（手動の実行で公開する） |
 
 ### 4.1 各フェーズの結果
 
@@ -76,9 +76,10 @@ Java は実行の前にコンパイルし、型の誤りなどを見つける。
 
 **Phase 4（2026-11-26、[phase4-report.md](phase4-report.md)）**：サンプル 24 本（JS 版の 21 本に対応＋Java 向け 3 本）、マニュアル（日本語・英語）、README（日本語・英語）、GitHub Actions のワークフロー（push ではテストとビルドだけ、公開は手動）。全サンプル × 全タブでブラウザのエラー 0 件。
 
-**Phase 5（進行中、2026-11-26 時点）**：
+**Phase 5（2026-11-26、[phase5-report.md](phase5-report.md)）**：比較テストがすべて通る（テスト 359 件、サンプル 28 本）。公開版はまだ Phase 4 の時点のまま。
 - 済み：`ArrayList`・`List.of`・`Collections`・`StringBuilder`・ラッパー型とジェネリクスの型（[ADR-007](adr/ADR-007-collections-and-wrappers.md)）、抽象クラス・インターフェース・`Comparable`・`enum`・`switch` 式・`instanceof` のパターン・入れ子の型（[ADR-008](adr/ADR-008-interfaces-enums-switch.md)）、`HashMap`・`HashSet`・`TreeMap`・`LinkedHashMap`・`TreeSet`・`LinkedHashSet`・`Map.of`・`Set.of`・`Map.Entry`（繰り返しの順序を本物と同じにする。`Integer` の `null` を取り出したときの `NullPointerException` の文面、`ConcurrentModificationException`。[ADR-009](adr/ADR-009-maps-and-sets.md)）、サンプル `28_hash_map`
-- 次：サンプル（インターフェース・`enum`）、マニュアル・README の「使える Java の範囲」の更新、Phase 5 の報告書、ラムダ式（必要なら。`map.merge`・`forEach`・`Comparator` に要る）
+- 済み：サンプル（`29_interfaces`・`31_enum_switch`）、マニュアル・README の「使える Java の範囲」の更新、報告書
+- 残り：公開（手動の実行。実行の前に確認を取る）、ラムダ式（必要なら。`map.merge`・`forEach`・`Comparator` に要る）
 
 ## 5. MVP の対象範囲（Phase 2）
 

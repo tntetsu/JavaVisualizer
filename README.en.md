@@ -42,9 +42,9 @@ Stepping (four granularities — Expr, Human, Stmt, Func — forward and backwar
 
 ## Supported Java
 
-`int`, `long`, `double`, `char`, `boolean`, `String`, arrays (one- and two-dimensional); `if`, `while`, `do`/`while`, `for`, enhanced `for`, `switch`; methods (`static`, instance, recursion, overloading); classes (fields, constructors, inheritance, `super`); exceptions (`try`/`catch`/`finally`, `throw`, your own exceptions); `System.out.println`, `printf`, the main `String` methods, `Math`, `Integer.parseInt`, `Arrays`, `Scanner`.
+`int`, `long`, `double`, `char`, `boolean`, `String`, arrays (one- and two-dimensional); `if`, `while`, `do`/`while`, `for`, enhanced `for`, `switch` (including `switch` expressions); methods (`static`, instance, recursion, overloading); classes (fields, constructors, inheritance, `super`, abstract classes, interfaces, `enum`); exceptions (`try`/`catch`/`finally`, `throw`, your own exceptions); `System.out.println`, `printf`, the main `String` methods, `Math`, `Integer.parseInt`, `Arrays`, `Scanner`; `ArrayList`, `HashMap`, `HashSet` (and `TreeMap`, `LinkedHashMap`, etc., with the same `HashMap` iteration order as real Java), `StringBuilder`, wrapper types and generic types.
 
-Not yet supported: `float`, interfaces, `enum`, `record`, lambda expressions, generics, `ArrayList`/`HashMap`, inner classes, `switch` expressions, file I/O (Phase 5 of the [development plan](docs/development-plan.md), in Japanese).
+Not yet supported: `float`, `record`, lambda expressions and streams, writing your own generic classes, non-`static` inner classes, file I/O.
 
 ## Running locally
 

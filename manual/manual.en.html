@@ -176,7 +176,7 @@
       <p>When you first open the app, it contains a sample program (the Fibonacci sequence).</p>
 
       <h3>Choosing a sample</h3>
-      <p>In edit mode, you can choose from 24 sample programs with the <strong>sample selector</strong> (drop-down) at the top.</p>
+      <p>In edit mode, you can choose from 28 sample programs with the <strong>sample selector</strong> (drop-down) at the top.</p>
       <figure>
         <img src="manual/en/screen-edit.png" alt="Edit mode: Edit and Run buttons and the sample selector at the top, bubble sort code on the left" width="1280" height="800" loading="lazy" />
         <figcaption>Edit mode (with the “Bubble Sort” sample selected)</figcaption>
@@ -190,8 +190,8 @@
           <tr><td>Sort (objects)</td><td>Sort objects by a numeric key, by a string key</td></tr>
           <tr><td>Math / Algorithms</td><td>Euclid GCD (loop / recursive), Factorial, Fibonacci (recursive / DP)</td></tr>
           <tr><td>Data Structures</td><td>Binary Tree, Linked List</td></tr>
-          <tr><td>Classes</td><td><code>static</code> and instance fields, Class &amp; Inheritance</td></tr>
-          <tr><td>Java</td><td>Types &amp; references (integer division, <code>int</code> overflow, casts, <code>==</code> vs <code>equals</code>), Exceptions (<code>try</code>/<code>catch</code>), Input (<code>Scanner</code>)</td></tr>
+          <tr><td>Classes</td><td><code>static</code> and instance fields, Class &amp; Inheritance, Interfaces &amp; polymorphism</td></tr>
+          <tr><td>Java</td><td>Types &amp; references (integer division, <code>int</code> overflow, casts, <code>==</code> vs <code>equals</code>), Exceptions (<code>try</code>/<code>catch</code>), Input (<code>Scanner</code>), <code>enum</code> &amp; <code>switch</code> expressions, <code>ArrayList</code> &amp; <code>StringBuilder</code>, <code>HashMap</code> &amp; <code>HashSet</code></td></tr>
           <tr><td>Study Tasks</td><td>Practice tasks (finding a bug, counting calls, tracing an intermediate state, etc.)</td></tr>
         </tbody>
       </table>
@@ -207,13 +207,13 @@
       <table>
         <thead><tr><th></th><th>Contents</th></tr></thead>
         <tbody>
-          <tr><td>Types</td><td><code>int</code>, <code>long</code>, <code>short</code>, <code>byte</code>, <code>double</code>, <code>char</code>, <code>boolean</code>, <code>String</code>, arrays (one- and two-dimensional), your own classes, <code>var</code></td></tr>
+          <tr><td>Types</td><td><code>int</code>, <code>long</code>, <code>short</code>, <code>byte</code>, <code>double</code>, <code>char</code>, <code>boolean</code>, <code>String</code>, arrays (one- and two-dimensional), your own classes, interfaces and <code>enum</code>s, <code>var</code>, wrapper types (<code>Integer</code>, etc.), generic types (<code>ArrayList&lt;Integer&gt;</code>, <code>Map&lt;String, Integer&gt;</code>)</td></tr>
           <tr><td>Statements</td><td>Variable declarations and assignments (including <code>+=</code>, <code>++</code>, etc.), <code>if</code>/<code>else</code>, <code>while</code>, <code>do</code>/<code>while</code>, <code>for</code>, enhanced <code>for</code> (<code>for (int x : a)</code>), <code>switch</code> (both <code>case 1:</code> and <code>case 1 -&gt;</code>), <code>break</code>/<code>continue</code>, <code>return</code>, <code>try</code>/<code>catch</code>/<code>finally</code>, <code>throw</code></td></tr>
           <tr><td>Expressions</td><td>Arithmetic (integer division and overflow behave as in real Java), comparisons, <code>&amp;&amp;</code>/<code>||</code>/<code>!</code>, bitwise operators and shifts, the conditional operator <code>? :</code>, casts, <code>instanceof</code>, string concatenation</td></tr>
           <tr><td>Methods</td><td><code>static</code> methods, instance methods, recursion, overloading</td></tr>
-          <tr><td>Classes</td><td>Fields, constructors, <code>this</code>, <code>static</code> fields, constants (<code>static final</code>), inheritance with <code>super</code> and overriding, your own exceptions (<code>extends Exception</code>, etc.)</td></tr>
-          <tr><td>Standard library</td><td><code>System.out.println</code>/<code>print</code>/<code>printf</code>, <code>String.format</code>, the main <code>String</code> methods (<code>length</code>, <code>charAt</code>, <code>substring</code>, <code>indexOf</code>, <code>equals</code>, <code>compareTo</code>, <code>split</code>, etc.), <code>Math</code>, <code>Integer.parseInt</code>, <code>Integer.MAX_VALUE</code>, <code>Double.parseDouble</code>, the main <code>Character</code> methods, <code>Arrays.toString</code>, <code>Arrays.sort</code>, <code>Scanner</code></td></tr>
-          <tr><td>Not yet supported</td><td><code>float</code>, interfaces, <code>enum</code>, <code>record</code>, lambda expressions, generics (such as <code>ArrayList&lt;Integer&gt;</code>), <code>ArrayList</code>/<code>HashMap</code>, inner classes, <code>switch</code> expressions, reading and writing files. Using them gives an error saying they are not supported yet</td></tr>
+          <tr><td>Classes</td><td>Fields, constructors, <code>this</code>, <code>static</code> fields, constants (<code>static final</code>), inheritance with <code>super</code> and overriding, abstract classes, interfaces (with <code>default</code> methods), <code>Comparable</code>, <code>enum</code>, <code>static</code> nested classes, your own exceptions (<code>extends Exception</code>, etc.)</td></tr>
+          <tr><td>Standard library</td><td><code>System.out.println</code>/<code>print</code>/<code>printf</code>, <code>String.format</code>, the main <code>String</code> methods (<code>length</code>, <code>charAt</code>, <code>substring</code>, <code>indexOf</code>, <code>equals</code>, <code>compareTo</code>, <code>split</code>, etc.), <code>Math</code>, <code>Integer.parseInt</code>, <code>Integer.MAX_VALUE</code>, <code>Double.parseDouble</code>, the main <code>Character</code> methods, <code>Arrays.toString</code>, <code>Arrays.sort</code>, <code>Scanner</code>, <code>ArrayList</code>, <code>List.of</code>, <code>Collections</code>, <code>HashMap</code>, <code>TreeMap</code>, <code>LinkedHashMap</code>, <code>Map.of</code>, <code>HashSet</code>, <code>TreeSet</code>, <code>LinkedHashSet</code>, <code>Set.of</code>, <code>StringBuilder</code></td></tr>
+          <tr><td>Not yet supported</td><td><code>float</code>, <code>record</code>, lambda expressions and streams (<code>forEach</code>, <code>merge</code>, <code>Comparator</code>, etc.), writing your own generic classes or methods, non-<code>static</code> inner classes, <code>Iterator</code>, reading and writing files. Using them gives an error saying they are not supported yet</td></tr>
         </tbody>
       </table>
       <p>Some displays differ from real Java.</p>
@@ -221,6 +221,8 @@
         <li><code>NullPointerException</code> messages name what was <code>null</code> using variable names (<code>because "n.next" is null</code>), as when running in an IDE</li>
         <li>The number in <code>Point@1b6d3586</code> (the hash code) when printing an object differs from real Java</li>
         <li><code>Math.random()</code> returns the same sequence every run (the values differ from real Java)</li>
+        <li>Printing a <code>HashMap</code> or <code>HashSet</code>, or looping over it with an enhanced <code>for</code>, gives the same order as real Java (not the insertion order). The exceptions are <code>Map.of</code>/<code>Set.of</code> (whose order changes on every run in real Java) and keys of your own classes that do not define <code>hashCode</code></li>
+        <li>The views show the contents of a <code>HashMap</code> as <code>"the": 2</code> (unlike <code>the=2</code> printed by <code>println</code>)</li>
       </ul>
       <p>Method calls stop with a <code>StackOverflowError</code> when nested deeper than about 200 levels (real Java allows thousands or more).</p>
 
@@ -450,7 +452,7 @@
           <tr><td>The sample selector is not shown</td><td>You are in Run mode. Press “✏ Edit”</td></tr>
           <tr><td><code>NoSuchElementException</code> saying there is no more input</td><td><code>Scanner</code> has no more values to read. Write the values in the “Input” box below the source (see <a href="#input">Using Scanner</a>)</td></tr>
           <tr><td>A message says the first class has no <code>public static void main(String[] args)</code></td><td>The program runs from the first class. Put the class with the <code>main</code> method at the top of the file (after any <code>import</code> lines)</td></tr>
-          <tr><td>A message says something is not supported yet</td><td>That part of Java is not supported by JavaVisualizer yet (see the table in <a href="#code">2. Preparing code</a>). Rewrite it in a supported way (for example, use an array instead of <code>ArrayList</code>)</td></tr>
+          <tr><td>A message says something is not supported yet</td><td>That part of Java is not supported by JavaVisualizer yet (see the table in <a href="#code">2. Preparing code</a>). Rewrite it in a supported way (for example, use a <code>for</code> loop instead of a lambda expression)</td></tr>
           <tr><td>An error is reported in code that does not run</td><td>As in real Java, compile errors are found by checking the whole program before it runs. Fix the line with the error</td></tr>
           <tr><td>The sample selector cannot be changed</td><td>You opened a link to a single piece of code. To use the built-in samples, open <a href="index.html">the JavaVisualizer top page</a> again</td></tr>
           <tr><td>A Runtime Error says execution stopped because it exceeded the maximum of 50,000 steps</td><td>A loop or recursion may never end. Step through up to where it stopped and check the exit condition. If the program simply does a lot of work, use smaller data</td></tr>

@@ -140,3 +140,38 @@ test('ADR-004 例 4：if の片方だけで値を入れた変数を使うと、�
   // else でも値を入れれば通る
   assert.equal(compileError(main('        int y;\n        if (true) {\n            y = 1;\n        } else {\n            y = 2;\n        }\n        System.out.println(y);')), null);
 });
+
+test('ADR-006 例 1：値の書き方（long に L を付けない・double は Double.toString・char・String のエスケープ・配列・オブジェクト）', async () => {
+  const { javaValueModel: m } = await import('../src/lang/java.js');
+  const dbg = new JavaDebugger(main('        long big = 10000000000L;\n        double d = 1e10;\n        char c = \'a\';\n        String s = "hi\\n";\n        int[] a = {1, 2, 3};\n        int z = 0;'));
+  const v = dbg.trace.filter(e => e.phase === 'exit' && e.nodeType === 'VariableDeclaration').at(-1).frameEnvs.at(-1);
+  assert.deepEqual([v.big, v.d, v.c, v.s].map(x => m.literal(x)), ['10000000000', '1.0E10', "'a'", '"hi\\n"']);
+  assert.equal(m.label(v.a), 'int[3]');
+  assert.deepEqual(m.brackets(v.a), ['{', '}']);
+});
+
+test('ADR-006 例 2：英語表示は javac・JVM と同じ文面', async () => {
+  const { localizeJavaError } = await import('../src/lang/java.js');
+  const en = (src) => { try { new JavaDebugger(src); } catch (e) { return [e.name, localizeJavaError(e.message, 'en')]; } return null; };
+  assert.deepEqual(en(main('        System.out.println("start");\n        int x = 3.5;')),
+    ['CompileError', 'Compile error (line 4): incompatible types: possible lossy conversion from double to int']);
+  assert.deepEqual(en(main('        int x = 3\n        x++;')), ['SyntaxError', "Syntax error (line 3): ';' expected"]);
+  assert.deepEqual(en(main('        int z = 0;\n        System.out.println(5 / z);')),
+    ['ExecutionError', 'Exception in thread "main" java.lang.ArithmeticException: / by zero (line 4)']);
+});
+
+test('ADR-006 例 3：NullPointerException は何が null だったかを書く（日本語・英語）', async () => {
+  const { localizeJavaError } = await import('../src/lang/java.js');
+  const src = main('        Node n = new Node();\n        System.out.println(n.next.value);', 'class Node {\n    int value;\n    Node next;\n}\n');
+  let e;
+  try { new JavaDebugger(src); } catch (x) { e = x; }
+  assert.equal(e.message, '実行時エラー（4行目）: 「n.next」が null（何も指していない）なので、フィールド value を読めません。java.lang.NullPointerException: Cannot read field "value" because "n.next" is null');
+  assert.equal(localizeJavaError(e.message, 'en'), 'Exception in thread "main" java.lang.NullPointerException: Cannot read field "value" because "n.next" is null (line 4)');
+});
+
+test('ADR-006 例 4：入力欄の見出しは Scanner の文言', async () => {
+  const { createJavaProfile } = await import('../src/lang/java.js');
+  const p = createJavaProfile({});
+  assert.equal(p.inputText.ja.label, '入力（Scanner で読みます。空白や改行で区切ります）');
+  assert.ok(p.supportsInput);
+});

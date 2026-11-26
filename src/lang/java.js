@@ -91,7 +91,11 @@ export const createJavaProfile = (samples, { groups, defaultSample } = {}) => ({
   ExecutionError,
   editorExtension: () => java(),
   supportsInput: true,
-  localizeError: localizeJavaError,   // 入力欄を出し、実行時に { stdin } を渡す（Scanner。ADR-005）
+  localizeError: localizeJavaError,
+  inputText: {
+    ja: { label: '入力（Scanner で読みます。空白や改行で区切ります）', placeholder: '例：\n3\n10 20 30' },
+    en: { label: 'Input (read with Scanner; separate values with spaces or new lines)', placeholder: 'e.g.\n3\n10 20 30' },
+  },   // 入力欄を出し、実行時に { stdin } を渡す（Scanner。ADR-005）
   samples,
   sampleGroups: groups ?? [{ label: '─ Samples ─', keys: Object.keys(samples) }],
   defaultSample: defaultSample ?? Object.keys(samples)[0],

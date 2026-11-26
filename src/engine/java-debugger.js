@@ -46,9 +46,9 @@ const EXCEPTION_HINTS = {
   NoSuchElementException: '入力欄に、読む値（行）がもうありません',
 };
 
-/** 捕まえられなかった例外のメッセージ（日本語の説明＋Java の表示） */
-function uncaughtMessage(exc, loc) {
-  const hint = EXCEPTION_HINTS[exc.cls.name];
+/** 捕まえられなかった例外のメッセージ（日本語の説明＋Java の表示）。detail はエンジンが作った具体的な説明（NullPointerException） */
+function uncaughtMessage(exc, loc, detail = null) {
+  const hint = detail ?? EXCEPTION_HINTS[exc.cls.name];
   const where = loc ? `（${loc.line}行目）` : '';
   return `実行時エラー${where}: ${hint ? `${hint}。` : ''}${throwableString(exc)}`;
 }
@@ -78,7 +78,7 @@ export function runJava(source, { maxSteps = 100_000, stdin = '' } = {}) {
     if (err instanceof JavaCompileError) throw err;
     const exc = err instanceof RangeError ? null : toJavaException(err);
     if (exc) {
-      const wrapped = new Error(uncaughtMessage(exc, err.loc));
+      const wrapped = new Error(uncaughtMessage(exc, err.loc, err.hint ?? null));
       // 英語表示：本物の JVM と同じ 1 行に、行番号を添える（ADR-006）
       registerEnglish(wrapped.message, `Exception in thread "main" ${throwableString(exc)}${err.loc ? ` (line ${err.loc.line})` : ''}`);
       wrapped.javaException = throwableString(exc);

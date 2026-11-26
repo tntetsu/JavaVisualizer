@@ -46,6 +46,103 @@ const isSignal = (r) => r instanceof ReturnSignal || r instanceof BreakSignal ||
 const compileError = (msg, loc, javac) => new JavaCompileError(msg, loc, javac);
 const npe = (loc, msg = null) => new JavaError('NullPointerException', msg, loc);
 
+// ── NullPointerException の詳しいメッセージ（JEP 358。Java 21 を -g 付きでコンパイルしたときと同じ文面。ADR-006） ──
+
+/**
+ * null だった式の書き方（"n.next"・"Main.head"・"nodes[i]"・the return value of "Node.getNext()"）。書けなければ null
+ * @returns {{ text: string, quoted: boolean }|null}
+ */
+function describeNull(node, env, rt) {
+  switch (node.type) {
+    case 'Identifier': {
+      const name = node.name;
+      if (localScope(name, env)) return { text: name, quoted: true };
+      const ctx = ctxOf(env);
+      if (ctx.cls && hasInstanceField(ctx.cls, name)) return { text: `this.${name}`, quoted: true };
+      const sf = ctx.cls && findStaticField(ctx.cls, name);
+      if (sf) return { text: `${sf.cls.name}.${name}`, quoted: true };
+      return null;
+    }
+    case 'ThisExpression': return { text: 'this', quoted: true };
+    case 'Literal': return { text: node.raw, quoted: true };
+    case 'MemberExpression': {
+      if (node.computed) {
+        const a = describeNull(node.object, env, rt), i = describeNull(node.property, env, rt);
+        return a?.quoted && i?.quoted ? { text: `${a.text}[${i.text}]`, quoted: true } : null;
+      }
+      if (node.object.type === 'Identifier' && (rt.classes.has(node.object.name)) && !localScope(node.object.name, env)) {
+        return { text: `${node.object.name}.${node.property.name}`, quoted: true };
+      }
+      const o = describeNull(node.object, env, rt);
+      return o?.quoted ? { text: `${o.text}.${node.property.name}`, quoted: true } : null;
+    }
+    case 'CallExpression': {
+      const sig = methodDescriptor(node);
+      return sig ? { text: `the return value of "${sig}"`, quoted: false } : null;
+    }
+  }
+  return null;
+}
+
+/** String のメソッドの引数の型（NullPointerException のメッセージの "String.length()" の形） */
+function stringMethodParams(name, argNodes) {
+  const n = argNodes.length;
+  const charArg = argNodes[0]?.type === 'Literal' && argNodes[0].jtype === 'char';
+  switch (name) {
+    case 'charAt': case 'repeat': return 'int';
+    case 'substring': return n === 2 ? 'int, int' : 'int';
+    case 'indexOf': case 'lastIndexOf': return [charArg ? 'int' : 'String', ...(n > 1 ? ['int'] : [])].join(', ');
+    case 'equals': return 'Object';
+    case 'contains': return 'CharSequence';
+    case 'replace': return charArg ? 'char, char' : 'CharSequence, CharSequence';
+    case 'formatted': return 'Object[]';
+    case 'compareTo': case 'equalsIgnoreCase': case 'startsWith': case 'endsWith': case 'concat': case 'split': return 'String';
+  }
+  return '';
+}
+
+/** 呼び出しの式のメソッドの書き方（"Node.move(int, String)"）。静的な検査が付けた型の印から作る */
+function methodDescriptor(node) {
+  const recv = node.recvType;
+  if (!recv) return null;
+  const name = node.callee.type === 'Identifier' ? node.callee.name : node.callee.property.name;
+  const params = node.signature !== undefined ? node.signature.split(',').filter(Boolean).join(', ')
+    : recv === 'String' ? stringMethodParams(name, node.arguments) : '';
+  return `${recv}.${name}(${params})`;
+}
+
+/** 「何をしようとしたか」（英語の action）の日本語 */
+function actionJa(action) {
+  let m;
+  if ((m = action.match(/^Cannot read field "(\w+)"$/))) return `フィールド ${m[1]} を読めません`;
+  if ((m = action.match(/^Cannot assign field "(\w+)"$/))) return `フィールド ${m[1]} に値を入れられません`;
+  if ((m = action.match(/^Cannot invoke "(?:[\w.]+\.)?(\w+)\(.*\)"$/))) return `メソッド ${m[1]}() を呼べません`;
+  if (/^Cannot load from/.test(action)) return '配列の要素を読めません';
+  if (/^Cannot store to/.test(action)) return '配列の要素に値を入れられません';
+  if (action === 'Cannot read the array length') return '配列の長さ（length）を読めません';
+  if (action === 'Cannot throw exception') return '例外として投げられません';
+  return null;
+}
+
+/**
+ * NullPointerException を作る。action は「何をしようとしたか」、nullNode は null だった式。
+ * 日本語の表示のための説明（「n.next」が null … なので、フィールド value を読めません）を hint に持たせる
+ */
+function npeAt(loc, action, nullNode, env, rt) {
+  const d = nullNode ? describeNull(nullNode, env, rt) : null;
+  const e = npe(loc, d ? `${action} because ${d.quoted ? `"${d.text}"` : d.text} is null` : action);
+  const what = d ? (d.quoted ? `「${d.text}」` : `メソッド ${d.text.replace(/^the return value of "(.*)"$/, '$1')} の戻り値`) : null;
+  const ja = actionJa(action);
+  if (what && ja) e.hint = `${what}が null（何も指していない）なので、${ja}`;
+  return e;
+}
+
+/** 配列の種類（"int array"・"object array"） */
+const arrayKind = (arrType) => {
+  const e = arrType && arrType.endsWith('[]') ? arrType.slice(0, -2) : null;
+  return e && isPrimitiveType(e) ? `${e} array` : 'object array';
+};
+
 // ── 実行の準備 ────────────────────────────────────────────────────────────────
 
 /** AST のクラス宣言から JClass を作る */
@@ -249,11 +346,11 @@ function lvalue(node, env, rt, d, callDepth) {
   if (node.type === 'MemberExpression' && node.computed) {
     const arr = ev(node.object);
     const idx = coerce(ev(node.property), 'int');
-    const check = () => {
-      if (arr === null) throw npe(node.loc);
+    const check = (store) => {
+      if (arr === null) throw npeAt(node.loc, `Cannot ${store ? 'store to' : 'load from'} ${arrayKind(node.objType)}`, node.object, env, rt);
       if (idx < 0 || idx >= arr.length) throw new JavaError('ArrayIndexOutOfBoundsException', `Index ${idx} out of bounds for length ${arr.length}`, node.loc);
     };
-    return { type: arr?.__jelem, get: () => { check(); return arr[idx]; }, set: (v) => { check(); arr[idx] = v; } };
+    return { type: arr?.__jelem, get: () => { check(false); return arr[idx]; }, set: (v) => { check(true); arr[idx] = v; } };
   }
   if (node.type === 'MemberExpression') {
     const name = node.property.name;
@@ -269,7 +366,14 @@ function lvalue(node, env, rt, d, callDepth) {
       if (!sf) throw compileError(`クラス ${obj.name} に static フィールド ${name} はありません`, node.loc, 'cannot find symbol');
       return staticLvalue(sf, rt);
     }
-    if (obj === null) throw npe(node.loc);
+    if (obj === null) {
+      // 代入（=）なら「代入」、複合代入・++ なら先に読むので「読む」の NullPointerException
+      return {
+        type: undefined,
+        get: () => { throw npeAt(node.loc, `Cannot read field "${name}"`, node.object, env, rt); },
+        set: () => { throw npeAt(node.loc, `Cannot assign field "${name}"`, node.object, env, rt); },
+      };
+    }
     if (isArray(obj) && name === 'length') throw compileError('配列の length には代入できません', node.loc, 'cannot assign a value to final variable length');
     if (!isJObject(obj)) throw compileError(`${typeName(obj)} にフィールド ${name} はありません`, node.loc, 'cannot find symbol');
     return fieldLvalue(obj, name, node.loc);
@@ -738,7 +842,7 @@ function _eval(node, env, rt, depth, callDepth) {
 
     case 'ForOfStatement': {
       const coll = ev(node.right);
-      if (coll === null) throw npe(node.right.loc);
+      if (coll === null) throw npeAt(node.right.loc, 'Cannot read the array length', node.right, env, rt);
       if (!isArray(coll)) throw compileError('拡張 for 文（for (型 変数 : …)）で繰り返せるのは配列だけです', node.right.loc, 'for-each not applicable to expression type');
       // 各回のループ変数への代入を LoopBinding として記録する（「人」のステップが各回で止まる。ADR-003）
       const binding = { type: 'LoopBinding', loc: node.left.loc, end: node.left.end };
@@ -759,7 +863,7 @@ function _eval(node, env, rt, depth, callDepth) {
 
     case 'SwitchStatement': {
       const v = ev(node.discriminant);
-      if (v === null) throw npe(node.discriminant.loc);
+      if (v === null) throw npeAt(node.discriminant.loc, 'Cannot invoke "String.hashCode()"', node.discriminant, env, rt);
       const same = (c) => (isString(v) ? isString(c) && c.s === v.s : num(c) === num(v));
       // case の値は定数なので、記録せずに評価する
       let idx = node.cases.findIndex(c => c.tests.some(t => same(_eval(t, env, rt, d, callDepth))));
@@ -786,7 +890,7 @@ function _eval(node, env, rt, depth, callDepth) {
 
     case 'ThrowStatement': {
       const exc = ev(node.argument);
-      if (exc === null) throw npe(node.loc);
+      if (exc === null) throw npeAt(node.loc, 'Cannot throw exception', node.argument, env, rt);
       if (!isThrowable(exc)) throw compileError('throw できるのは例外のオブジェクトだけです', node.loc, 'incompatible types');
       throw new JThrow(exc, node.loc);
     }
@@ -913,7 +1017,10 @@ function _eval(node, env, rt, depth, callDepth) {
       const name = node.property.name;
       if (node.object.type === 'Super') return lvalue(node, env, rt, d, callDepth).get();
       const obj = ev(node.object);
-      if (obj === null) throw npe(node.loc);
+      if (obj === null) {
+        const action = name === 'length' && node.objType?.endsWith('[]') ? 'Cannot read the array length' : `Cannot read field "${name}"`;
+        throw npeAt(node.loc, action, node.object, env, rt);
+      }
       if (isArray(obj)) {
         if (name === 'length') return obj.length;
         throw compileError(`配列に ${name} はありません（長さは length）`, node.loc, 'cannot find symbol');
@@ -1040,7 +1147,10 @@ function evalCall(node, env, rt, d, callDepth) {
     const m = chooseMethod(findMethods(obj, name).filter(x => x.static), args, node.loc, name, node.signature);
     return callMethod(m, null, args, rt, d, callDepth, node.loc);
   }
-  if (obj === null) throw npe(node.loc);
+  if (obj === null) {
+    const sig = methodDescriptor(node);
+    throw npeAt(node.loc, sig ? `Cannot invoke "${sig}"` : `Cannot invoke "${name}()"`, callee.object, env, rt);
+  }
   if (isString(obj)) {
     let r;
     try {

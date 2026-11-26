@@ -389,6 +389,11 @@ function mostSpecific(ok, argTypes) {
 /** 型 from を型 to に渡せるか（mostSpecific 用。値の式なしの代入の変換） */
 let assignableType = () => true;
 
+/** 式に静的な型の印を付ける（NullPointerException の詳しいメッセージで使う。ADR-006） */
+function markType(n, key, t) {
+  if (t) Object.defineProperty(n, key, { value: t, enumerable: false, configurable: true });
+}
+
 /** 呼び出しの式に、選んだメソッドの引数の型の並び（シグネチャ）を印として付ける。評価器はこれで同じメソッドを呼ぶ */
 function markSignature(n, m) {
   Object.defineProperty(n, 'signature', { value: m.paramTypes.join(','), enumerable: false, configurable: true });
@@ -613,10 +618,11 @@ export function check(ast, classes) {
       for (const t of m.throws ?? []) requireHandled(t, n.loc, ctx);
       return m.returnType;
     };
-    if (c.type === 'Identifier') return userCall(ctx.cls, c.name, { fromStatic: ctx.isStatic });
+    if (c.type === 'Identifier') { markType(n, 'recvType', ctx.cls.name); return userCall(ctx.cls, c.name, { fromStatic: ctx.isStatic }); }
     const name = c.property.name;
     if (c.object.type === 'Super') return ctx.cls.superClass?.builtin ? null : userCall(ctx.cls.superClass, name);
     const ot = expr(c.object, locals, ctx);
+    markType(n, 'recvType', ot?.startsWith('class:') ? ot.slice(6) : ot);
     if (ot === null) return null;
     if (ot.startsWith('builtin:')) {
       const r = STATIC_RETURNS[ot.slice(8)]?.[name];
@@ -714,6 +720,7 @@ export function check(ast, classes) {
       case 'MemberExpression': {
         if (n.computed) {
           const at = expr(n.object, locals, ctx);
+          markType(n, 'objType', at);
           const it = expr(n.property, locals, ctx);
           if (it !== null && !widens(it, 'int')) throw err('配列の添字には int の値を使います', n.property.loc, `incompatible types: ${it} cannot be converted to int`);
           if (at === null) return null;
@@ -723,6 +730,7 @@ export function check(ast, classes) {
         const name = n.property.name;
         if (n.object.type === 'Super') return instanceFields(ctx.cls.superClass).find(f => f.name === name)?.type ?? null;
         const ot = expr(n.object, locals, ctx);
+        markType(n, 'objType', ot);
         if (ot === null) return null;
         if (isArrayType(ot)) {
           if (name === 'length') return 'int';

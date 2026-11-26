@@ -75,6 +75,7 @@ export function buildClasses(ast) {
           params: m.value.params.map(p => p.name),
           paramTypes: m.value.params.map(p => p.varType),
           returnType: m.returnType,
+          throws: m.throws ?? [],
           body: m.value.body, node: m,
         };
         Object.defineProperty(m.value.body, 'methodBody', { value: true, enumerable: false });

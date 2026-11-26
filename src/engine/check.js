@@ -182,6 +182,16 @@ function canComplete(s) {
   return true;
 }
 
+// ── 検査例外（JLS 11.2） ─────────────────────────────────────────────────────
+
+/** 型が検査例外か（Exception の下で、RuntimeException の下でないもの。Throwable そのものも含む） */
+function isCheckedException(t, classes) {
+  const chain = [];
+  for (let k = classes.get(t) ?? BUILTIN_CLASSES.get(t); k; k = k.superClass) chain.push(k.name);
+  if (!chain.includes('Throwable')) return false;
+  return !chain.includes('RuntimeException') && !chain.includes('Error');
+}
+
 // ── オーバーロードの選択（JLS 15.12.2 の簡略版） ───────────────────────────────
 
 /**
@@ -232,7 +242,8 @@ export function check(ast, classes) {
     for (const m of [...cls.ctors, ...[...cls.methods.values()].flat()]) {
       const locals = new Locals();
       m.params.forEach((p, i) => locals.vars.set(p, m.paramTypes[i]));
-      const ctx = { cls, isStatic: m.static, method: m };
+      // handled：いま捕まえられる例外の型（外側の try の catch と、メソッドの throws）。内側の try で積む
+      const ctx = { cls, isStatic: m.static, method: m, handled: [...(m.throws ?? [])] };
       stmt(m.body, locals, ctx);
       if (m.returnType && m.returnType !== 'void' && canComplete(m.body)) {
         throw err(`メソッド ${m.name} の最後まで進むと、値を返さずに終わってしまいます（return で ${m.returnType} の値を返します）`,
@@ -248,6 +259,14 @@ export function check(ast, classes) {
     if (base === 'Scanner') { needImport(base, loc); return; }
     if (classes.has(base) || BUILTIN_CLASSES.has(base) || ['Integer', 'Long', 'Double', 'Character', 'Boolean'].includes(base)) return;
     throw err(`型 ${base} が見つかりません（クラス名のつづりを確かめてください）`, loc, 'cannot find symbol');
+  }
+
+  /** 検査例外 t が、catch か throws で扱われているか。扱われていなければコンパイルエラー */
+  function requireHandled(t, loc, ctx) {
+    if (!t || !isCheckedException(t, classes)) return;
+    if ((ctx.handled ?? []).some(h => assignable(t, h, classes))) return;
+    throw err(`例外 ${t} は、try … catch で捕まえるか、メソッドに throws ${t} と書く必要があります`, loc,
+      `unreported exception ${t}; must be caught or declared to be thrown`);
   }
 
   function cond(n, locals, ctx) {
@@ -322,9 +341,9 @@ export function check(ast, classes) {
         if (!assignable(t, rt, classes, s.argument)) throw incompatible(t, rt, s.argument.loc);
         return;
       }
-      case 'ThrowStatement': expr(s.argument, locals, ctx); return;
+      case 'ThrowStatement': requireHandled(expr(s.argument, locals, ctx), s.loc, ctx); return;
       case 'TryStatement':
-        stmt(s.block, locals, ctx);
+        stmt(s.block, locals, { ...ctx, handled: [...(ctx.handled ?? []), ...s.handlers.flatMap(h => h.types)] });
         for (const h of s.handlers) {
           h.types.forEach(t => knownType(t, h.loc));
           const inner = new Locals(locals);
@@ -383,6 +402,7 @@ export function check(ast, classes) {
       }
       const m = mostSpecific(ok, argTypes);
       markSignature(n, m);
+      for (const t of m.throws ?? []) requireHandled(t, n.loc, ctx);
       return m.returnType;
     };
     if (c.type === 'Identifier') return userCall(ctx.cls, c.name, { fromStatic: ctx.isStatic });
@@ -531,7 +551,11 @@ export function check(ast, classes) {
           if (cls.ctors.length && !okCtors.length) {
             throw err(`クラス ${name} のコンストラクタに渡す引数の数か型が合いません`, n.loc, `constructor ${name} in class ${name} cannot be applied to given types;`);
           }
-          if (okCtors.length) markSignature(n, mostSpecific(okCtors, argTypes));
+          if (okCtors.length) {
+            const c = mostSpecific(okCtors, argTypes);
+            markSignature(n, c);
+            for (const t of c.throws ?? []) requireHandled(t, n.loc, ctx);
+          }
         }
         return name;
       }

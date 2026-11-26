@@ -45,7 +45,13 @@ int x = 3.5;
 見送るもの（必要になったら足す）：
 
 - 変数の確実な初期化（`int y; System.out.println(y);`）は、静的には調べず、実行したときに「値を入れる前に使っています」と出す（実行される場合だけ見つかる）
-- ジェネリクスの型検査、オーバーロードの細かな解決、到達できない文（`unreachable statement`）、検査例外の `throws`（`unreported exception`）、`final` への再代入
+- ジェネリクスの型検査、到達できない文（`unreachable statement`）、`final` への再代入、`catch` した検査例外が `try` の中で投げられない（`exception … is never thrown`）
+
+## Phase 2 の追記（2026-11-26）
+
+- **検査例外**：`Exception` の下で `RuntimeException` の下でない例外（自作の `class MyException extends Exception` を含む）を `throw` するか、`throws` を書いたメソッド・コンストラクタを呼ぶとき、外側の `try` の `catch` か、そのメソッドの `throws` で扱っていなければコンパイルエラーにする。日本語は「例外 Exception は、try … catch で捕まえるか、メソッドに throws Exception と書く必要があります」、英語は `javac` と同じ `unreported exception Exception; must be caught or declared to be thrown`（`tests/compile-errors/unreported_*.java`）
+- **オーバーロード**：引数の宣言の型からいちばん特定的なメソッドを選び、呼び出しの式に印を付ける（評価器はそのメソッドを呼ぶ。ADR-002 追記）
+- **`import`**：`Scanner`・`Arrays` は `import` が要る（ADR-005）。`java.util.Arrays.toString(…)` のように完全な名前で書けば要らない
 
 ## 理由
 

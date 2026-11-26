@@ -249,6 +249,7 @@ export function parse(src) {
             static: mods.includes('static'), modifiers: mods,
             key: mk('Identifier', def, { name: text(def) }),
             returnType: ctor ? null : typeOf(typeChild(m)),
+            throws: (() => { const t = child(m, 'Throws'); return t ? kids(t).filter(c => c.name !== 'throws' && c.name !== ',').map(typeOf) : []; })(),
             bodyEnd: pm.loc(bodyNode.to - 1),   // 閉じる } の位置（return の忘れの位置。javac と同じ）
             value: mk('FunctionExpression', m, {
               id: mk('Identifier', def, { name: text(def) }),

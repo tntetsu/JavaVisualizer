@@ -286,6 +286,21 @@ function mathRound(v) {
   return BigInt(num(v));
 }
 
+/** Math.floorDiv・floorMod（負の数の方向に切り捨てる割り算とその余り。int か long） */
+function floorDivMod(kind, a, b) {
+  if (isLong(a) || isLong(b)) {
+    const x = isLong(a) ? a : BigInt(num(a)), y = isLong(b) ? b : BigInt(num(b));
+    if (y === 0n) throw new JavaError('ArithmeticException', '/ by zero');
+    let q = x / y;
+    if ((x % y !== 0n) && ((x < 0n) !== (y < 0n))) q -= 1n;
+    return BigInt.asIntN(64, kind === 'div' ? q : x - q * y);
+  }
+  const x = num(a), y = num(b);
+  if (y === 0) throw new JavaError('ArithmeticException', '/ by zero');
+  const q = Math.floor(x / y);
+  return (kind === 'div' ? q : x - q * y) | 0;
+}
+
 function absOrMinMax(name, args) {
   const [a, b] = args;
   const pick = (f) => {
@@ -334,6 +349,8 @@ export function createBuiltins() {
       sin: ddd(Math.sin), cos: ddd(Math.cos), tan: ddd(Math.tan), log: ddd(Math.log), log10: ddd(Math.log10), exp: ddd(Math.exp),
       hypot: ddd(Math.hypot), atan2: ddd(Math.atan2),
       round: ([v]) => mathRound(v),
+      floorDiv: ([a, b]) => floorDivMod('div', a, b),
+      floorMod: ([a, b]) => floorDivMod('mod', a, b),
       random: () => makeDouble((nextBits(26) * 2 ** 27 + nextBits(27)) * 2 ** -53),
     })],
     ['Integer', new JBuiltin('Integer', {

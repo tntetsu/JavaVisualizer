@@ -889,8 +889,11 @@ function _eval(node, env, rt, depth, callDepth) {
       lv.set(v);
       return v;
     }
-    case 'ConditionalExpression':
-      return ev(node.test) ? ev(node.consequent) : ev(node.alternate);
+    case 'ConditionalExpression': {
+      const v = ev(node.test) ? ev(node.consequent) : ev(node.alternate);
+      // 両側の型から決まる結果の型（静的な検査が付けた印）に変換する（true ? 1 : 2.0 は 1.0）
+      return node.resultType ? coerce(v, node.resultType) : v;
+    }
     case 'SequenceExpression': {
       let r;
       for (const e of node.expressions) r = ev(e);

@@ -98,6 +98,8 @@ const STATIC_RETURNS = {
     sqrt: 'double', pow: 'double', cbrt: 'double', floor: 'double', ceil: 'double', sin: 'double', cos: 'double',
     tan: 'double', log: 'double', log10: 'double', exp: 'double', hypot: 'double', atan2: 'double', random: 'double',
     round: (args) => (args[0] === 'float' ? 'int' : 'long'),
+    floorDiv: (args) => (args.includes('long') ? 'long' : args.includes(null) ? null : 'int'),
+    floorMod: (args) => (args.includes('long') ? 'long' : args.includes(null) ? null : 'int'),
     abs: (args) => (args[0] === null ? null : promote(args[0], 'int')),
     max: (args) => (args.includes(null) ? null : promote(args[0], args[1])),
     min: (args) => (args.includes(null) ? null : promote(args[0], args[1])),
@@ -432,8 +434,18 @@ export function check(ast, classes) {
       case 'ConditionalExpression': {
         cond(n.test, locals, ctx);
         const a = expr(n.consequent, locals, ctx), b = expr(n.alternate, locals, ctx);
+        // 結果の型（JLS 15.25 の簡略版）。評価器が、選ばれた側の値をこの型に変換する（true ? 1 : 2.0 は 1.0）
+        const mark = (t) => { Object.defineProperty(n, 'resultType', { value: t, enumerable: false, configurable: true }); return t; };
         if (a === b) return a;
-        if (a && b && isNumericType(a) && isNumericType(b)) return promote(a, b);
+        if (a && b && isNumericType(a) && isNumericType(b)) {
+          // char と、char に収まる int の定数 → char（false ? 'a' : 98 は 'b'）
+          for (const [narrow, other, node] of [[a, b, n.alternate], [b, a, n.consequent]]) {
+            const c = constIntValue(node);
+            const range = { byte: [-128, 127], short: [-32768, 32767], char: [0, 65535] }[narrow];
+            if (range && other === 'int' && c !== null && c >= range[0] && c <= range[1]) return mark(narrow);
+          }
+          return mark(promote(a, b));
+        }
         if (a === 'null') return b;
         if (b === 'null') return a;
         return null;

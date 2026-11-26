@@ -158,6 +158,7 @@ export function parse(src) {
     type, ...props, loc: pm.loc(n.from), end: STATEMENT_TYPES.has(type) ? null : pm.end(n.to), range: [n.from, n.to],
   });
   const unsupported = (what, n) => { const p = pm.loc(n.from); throw new JavaUnsupportedError(what, p.line, p.column); };
+  const qualifiedImports = [];   // 完全な名前で書いた java.util などのクラス（import したものとして数える）
 
   // ── 型 ──
   /** 型のノード → 型の文字列 */
@@ -166,7 +167,7 @@ export function parse(src) {
       case 'PrimitiveType': case 'TypeName': return text(n);
       case 'var': return 'var';
       case 'void': return 'void';
-      case 'ScopedTypeName': return text(n).split('.').pop();
+      case 'ScopedTypeName': qualifiedClass(n); return text(n).replace(/\s+/g, '').split('.').pop();
       case 'GenericType': return typeOf(kids(n)[0]);
       case 'ArrayType': {
         const [base, ...dims] = kids(n);
@@ -445,9 +446,23 @@ export function parse(src) {
     return null;
   }
 
+  /**
+   * java.util.Arrays・java.lang.Math のような完全な名前を、クラス名の Identifier にまとめる（そうでなければ null）。
+   * 完全な名前で書いたクラスは import が要らないので、import したものとして数える（qualifiedImports）
+   */
+  function qualifiedClass(n) {
+    if (n.name !== 'FieldAccess' && n.name !== 'ScopedTypeName') return null;
+    const m = text(n).replace(/\s+/g, '').match(/^java\.(lang|util|io)\.([A-Z]\w*)$/);
+    if (!m) return null;
+    qualifiedImports.push(`import java.${m[1]}.${m[2]};`);
+    return mk('Identifier', n, { name: m[2], qualified: true });
+  }
+
   function expr(n) {
     const lit = literal(n);
     if (lit) return lit;
+    const q = qualifiedClass(n);
+    if (q) return q;
     const ks = kids(n);
     switch (n.name) {
       case 'Identifier': return mk('Identifier', n, { name: text(n) });
@@ -552,5 +567,5 @@ export function parse(src) {
     if (c.name === ';') continue;
     body.push(classDecl(c));
   }
-  return { type: 'Program', body, imports, loc: { line: 1, column: 1 }, end: null, range: [0, src.length] };
+  return { type: 'Program', body, imports: [...imports, ...qualifiedImports], loc: { line: 1, column: 1 }, end: null, range: [0, src.length] };
 }

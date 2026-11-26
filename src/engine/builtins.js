@@ -267,6 +267,7 @@ export function callStringMethod(str, name, args, ctx) {
       for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
       return h;
     }
+    case 'formatted': return S(javaFormat(s, args, ctx));   // "%d items".formatted(3)（Java 15 以降）
     case 'toString': case 'intern': return name === 'intern' ? ctx.intern(s) : str;
   }
   return undefined;

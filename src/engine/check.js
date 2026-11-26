@@ -90,7 +90,7 @@ const STRING_METHODS = {
   equalsIgnoreCase: 'boolean', compareTo: 'int', isEmpty: 'boolean', isBlank: 'boolean', contains: 'boolean',
   startsWith: 'boolean', endsWith: 'boolean', toUpperCase: 'String', toLowerCase: 'String', trim: 'String', strip: 'String',
   concat: 'String', repeat: 'String', replace: 'String', toCharArray: 'char[]', split: 'String[]', hashCode: 'int',
-  toString: 'String', intern: 'String',
+  toString: 'String', intern: 'String', formatted: 'String',
 };
 
 const STATIC_RETURNS = {

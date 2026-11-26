@@ -62,7 +62,7 @@ Java は実行の前にコンパイルし、型の誤りなどを見つける。
 | **2. エンジンの MVP** | 5 節の範囲。本物の Java との比較テスト（出力・例外・変数の状態の変化） | 比較テストがすべて通る | **済み**（2026-11-26） |
 | **3. 言語プロファイル** | 値の見せ方（`valueModel`）・色分け・実行トレースの行・エラーメッセージの英語化 | Java の値が Java の書き方で表示される。ADR の例のテスト | **済み**（2026-11-26） |
 | **4. アプリ** | サンプル（JS 版の 21 本に対応）、マニュアル（日本語・英語）、デプロイの準備、README | 全サンプル × 全タブでブラウザのエラー 0 件 | **済み**（2026-11-26）。2026-11-26 に公開（https://tntetsu.github.io/JavaVisualizer/） |
-| **5. 対象の拡大** | `ArrayList`・`HashMap`・インターフェース・`switch` の新しい形など、授業で使う範囲まで | 比較テストがすべて通る | 未着手 |
+| **5. 対象の拡大** | `ArrayList`・`HashMap`・インターフェース・`switch` の新しい形など、授業で使う範囲まで | 比較テストがすべて通る | **進行中**（4.1 節の Phase 5） |
 
 ### 4.1 各フェーズの結果
 
@@ -75,6 +75,11 @@ Java は実行の前にコンパイルし、型の誤りなどを見つける。
 **Phase 3（2026-11-26、[phase3-report.md](phase3-report.md)）**：値の書き方とエラーメッセージを決めた（[ADR-006](adr/ADR-006-display-and-messages.md)）。英語表示は `javac`・JVM と同じ文面、見出しに「Compile Error」、`NullPointerException` は何が `null` だったかを書く（本物と 27 通りで一致）、入力欄は Scanner の文言、色分けの修正。JS 版の画面は 3,050 件一致し、JSVisualizer の作業ブランチにタグ `multilang-2026.11.26.2` を付けた。
 
 **Phase 4（2026-11-26、[phase4-report.md](phase4-report.md)）**：サンプル 24 本（JS 版の 21 本に対応＋Java 向け 3 本）、マニュアル（日本語・英語）、README（日本語・英語）、GitHub Actions のワークフロー（push ではテストとビルドだけ、公開は手動）。全サンプル × 全タブでブラウザのエラー 0 件。
+
+**Phase 5（進行中、2026-11-26 時点）**：
+- 済み：`ArrayList`・`List.of`・`Collections`・`StringBuilder`・ラッパー型とジェネリクスの型（[ADR-007](adr/ADR-007-collections-and-wrappers.md)）、抽象クラス・インターフェース・`Comparable`・`enum`・`switch` 式・`instanceof` のパターン・入れ子の型（[ADR-008](adr/ADR-008-interfaces-enums-switch.md)）
+- 次：`HashMap`・`HashSet`（`TreeMap`・`LinkedHashMap` も）。繰り返しの順序を本物と同じにするため、`HashMap` の表を再現する（容量 16 から、要素数が容量の 0.75 倍を超えたら 2 倍、`hash = h ^ (h >>> 16)`、位置は `(容量 - 1) & hash`、同じ位置は入れた順、2 倍にするときは各位置の並びを保って分ける）。`Map.Entry`（`entrySet`・`getKey`・`getValue`）、`keySet`・`values`、`getOrDefault`・`putIfAbsent`・`containsKey`・`remove`、表示は `{the=3, over=1}`。自作のクラスのキーは、`hashCode` を書いていないと本物と順序が違う（識別のハッシュ値が違うため）
+- そのあと：サンプル（インターフェース・`enum`・`HashMap`）、マニュアル・README の「使える Java の範囲」の更新、Phase 5 の報告書、ラムダ式（必要なら）
 
 ## 5. MVP の対象範囲（Phase 2）
 

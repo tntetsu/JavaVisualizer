@@ -17,7 +17,7 @@
 - 言語ごとの差（ノードの分類・値の見せ方・エディタ・サンプル・エラーメッセージの英語化）は**言語プロファイル**でフロントエンドに渡す
 - パーサーは `@lezer/java` ＋ 自前の AST 変換（構文エラーの説明は自前）
 
-**現在のステータス**: Phase 0〜4（スパイク・土台の調整・エンジンの MVP・言語プロファイル・アプリ）が終わり、2026-11-26 に公開した（https://tntetsu.github.io/JavaVisualizer/ 、リポジトリ `tntetsu/JavaVisualizer` も公開）。次は **Phase 5（対象の拡大）**（[docs/development-plan.md](docs/development-plan.md) 4 節の表、報告書は `docs/phase0-report.md`〜`phase4-report.md`）。**公開（デプロイ）はワークフローの手動の実行（workflow_dispatch）で行い、main への push ではテストとビルドだけ**。公開版を変える操作（手動の実行）は、実行する前に確認を取る。
+**現在のステータス**: Phase 0〜4 が終わり、2026-11-26 に公開した（https://tntetsu.github.io/JavaVisualizer/ 、リポジトリ `tntetsu/JavaVisualizer` も公開）。**Phase 5（対象の拡大）を進めている**：`ArrayList` など（ADR-007）と、インターフェース・`enum`・`switch` 式など（ADR-008）は済み。次は `HashMap`・`HashSet`（[docs/development-plan.md](docs/development-plan.md) の 4.1 節の Phase 5 に手順を書いた）。公開版はまだ Phase 4 の時点のまま（Phase 5 の機能は未公開）。**公開（デプロイ）はワークフローの手動の実行（workflow_dispatch）で行い、main への push ではテストとビルドだけ**。公開版を変える操作（手動の実行）は、実行する前に確認を取る。
 
 ## 関連リポジトリ
 
@@ -112,6 +112,12 @@ node scripts/capture-spike.mjs <出力先>        # 全サンプル × 全タブ
 | デバッガー（ノードの分類。ADR-003） | `src/engine/java-debugger.js` |
 | 言語プロファイル | `src/lang/java.js`、`src/register-java.js`、`src/app.js` |
 | 本物の Java との比較 | `tests/oracle.test.js`（出力・例外・コンパイルエラー）、`tests/line-state.test.js`（`tests/tools/TraceStates.java`、JDI）、`tests/format.test.js`（`tests/tools/FormatEcho.java`） |
+
+Java で分かったこと（Phase 5 で足したもの）：
+
+- JDK のクラス（`ArrayList`・`StringBuilder`・ラッパー型・`enum`）を変数の状態の比較で書くときは、`tests/tools/TraceStates.java`（JDI 側）と `tests/tools/state-changes.js`（こちら側）を同じ書き方にそろえる（`[1, 2]`・`StringBuilder("ab")`・`Color.GREEN`）。新しい組み込みのクラスを足したら、両方に足す
+- `@lezer/java` は入れ子の型引数の `>>` をシフト演算子として読むので、`parse.js` の `splitGenericClosers` で直してから読む
+- テスト：`npm test` は約 1 分半（330 件ほど）。`tests/cases/*.java`（同じ名前の `.stdin` は入力）・`tests/compile-errors/*.java` に足すと、本物の Java との比較に自動で入る
 
 Java で分かったこと：
 

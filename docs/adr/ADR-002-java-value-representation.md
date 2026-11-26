@@ -53,6 +53,11 @@ int over = Integer.MAX_VALUE + 1;  // -2147483648（あふれる）
 | `static` フィールド | グローバルのスコープに「クラス名.フィールド名」で置き、見出しを `static` にする。static フィールドがなければ出さない | `static` の下に `int Main.created = 2`・`int Counter.total = 1` |
 | プログラムの最後の時点 | `main` が終わっているので、変数・メモリのビューは空（ADR-003） | |
 
+## Phase 2 の追記（2026-11-26）
+
+- **`StackOverflowError` を `catch` で捕まえられる**ようにした（`catch (StackOverflowError e)`・`catch (Error e)`）。ホストの JS のスタックがあふれたとき、いちばん近い `try` でこの例外に変える。あふれる深さは本物（数千〜数万段）より浅い（Node の既定で約 200 段）
+- 条件演算子の結果の型：静的な検査が両側の型から結果の型を求め（`true ? 1 : 2.0` は `double`、`false ? 'a' : 98` は `char`）、評価器が選ばれた側の値をその型に変換する
+
 ## Phase 0 の時点の記録：決めなかったこと
 
 | 論点 | Phase 0 での仮の形 | 分かったこと |

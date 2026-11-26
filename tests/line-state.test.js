@@ -8,7 +8,7 @@
  * 同じ時点で変わった変数は、どちらも名前の順に並べる。
  *
  * 出力の比較（oracle.test.js）では見えない、途中の変数の値の誤り（型の変換・参照の共有・スコープ）を見つけるためのテスト。
- * 例外で終わるプログラム（uncaught_*）は対象外。
+ * 例外で終わるプログラム（uncaught_*）と、スタックのあふれを捕まえるプログラム（stack_overflow_*。深さが本物と違う）は対象外。
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,7 +22,8 @@ import { stateChanges } from './tools/state-changes.js';
 const ROOT = new URL('..', import.meta.url).pathname;
 const files = [
   ...readdirSync(join(ROOT, 'samples')).map(f => join('samples', f)),
-  ...readdirSync(join(ROOT, 'tests/cases')).filter(f => !f.startsWith('uncaught_')).map(f => join('tests/cases', f)),
+  // uncaught_（例外で終わる）と stack_overflow_（再帰の深さが本物と違う）は対象外
+  ...readdirSync(join(ROOT, 'tests/cases')).filter(f => !f.startsWith('uncaught_') && !f.startsWith('stack_overflow_')).map(f => join('tests/cases', f)),
 ].filter(f => f.endsWith('.java')).sort();
 
 /** 入力欄の内容：ファイルと同じ名前の .stdin（なければ空） */

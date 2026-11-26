@@ -796,7 +796,9 @@ function _eval(node, env, rt, depth, callDepth) {
         const r = ev(node.block);
         if (isSignal(r)) result = r;
       } catch (err) {
-        const exc = toJavaException(err);
+        // ホストの JS のスタックのあふれは、Java の StackOverflowError として捕まえられる（深さは本物より浅い。ADR-002）
+        const exc = toJavaException(err)
+          ?? (err instanceof RangeError && /call stack|too much recursion/i.test(err.message) ? makeThrowable(BUILTIN_CLASSES.get('StackOverflowError'), null) : null);
         if (!exc) throw err;   // コンパイルエラー・上限超過は catch で捕まえない
         trimFailedTry(rec.trace, traceStart);
         rec.curEnv = savedCurEnv;

@@ -5,11 +5,16 @@
  * エンジンのソースから、コンパイルエラー・構文エラーを作る呼び出しを集め、英語の文面の引数があることを確かめる。
  * 実行時の例外（JavaError）は、メッセージがもともと本物の Java と同じ英語なので対象外。
  * 文面が本物と一致することは oracle.test.js（tests/compile-errors）で確かめる。
+ * あわせて、画面の英語表示（言語プロファイルの localizeError。ADR-006）に日本語が残らないことを、すべての誤りの題材で確かめる。
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { whatToEnglish } from '../src/engine/messages-en.js';
+import { JavaDebugger } from '../src/engine/java-debugger.js';
+import { localizeJavaError } from '../src/lang/java.js';
+import { localizeErrorMessage } from 'js-visualizer/src/utils/error-message.js';
 
 const ENGINE = new URL('../src/engine/', import.meta.url).pathname;
 
@@ -55,7 +60,7 @@ test('コンパイルエラー・構文エラーを作る呼び出しには、ja
   for (const f of files) {
     const src = readFileSync(join(ENGINE, f), 'utf8');
     for (const [name, need] of SITES) {
-      for (const { line, args } of argCounts(src, name.replace('new ', 'new '))) {
+      for (const { line, args } of argCounts(src, name)) {
         // 関数の定義そのもの（const compileError = (msg, loc, javac) => …）は数えない
         const text = src.split('\n')[line - 1];
         if (/=\s*\(.*\)\s*=>|constructor\(|function /.test(text)) continue;
@@ -63,8 +68,46 @@ test('コンパイルエラー・構文エラーを作る呼び出しには、ja
       }
     }
   }
-  // Phase 0 で英語の文面がまだないもの（まだ対応していない構文の説明）。Phase 3 で英語を付ける
-  const KNOWN = [/はまだ対応していません/];
-  const real = missing.filter(m => !KNOWN.some(k => k.test(m)));
-  assert.deepEqual(real, []);
+  assert.deepEqual(missing, []);
+});
+
+test('「まだ対応していません」の構文の名前は、すべて英語の表にある', () => {
+  const src = readFileSync(join(ENGINE, 'parse.js'), 'utf8');
+  const names = [...src.matchAll(/unsupported\('([^']+)'/g)].map(m => m[1]);
+  assert.ok(names.length > 20);
+  const untranslated = names.filter(n => /[぀-ヿ一-鿿]/.test(whatToEnglish(n)));
+  assert.deepEqual(untranslated, []);
+  // 型「…」・文「…」・式「…」の形
+  assert.equal(whatToEnglish('型「Foo<T>」'), 'type "Foo<T>"');
+});
+
+const ROOT = new URL('..', import.meta.url).pathname;
+const JAPANESE = /[぀-ヿ一-鿿]/;
+const englishOf = (src, stdin = '') => {
+  try { new JavaDebugger(src, { stdin }); } catch (e) { return localizeJavaError(e.message, 'en'); }
+  return null;
+};
+
+for (const f of readdirSync(join(ROOT, 'tests/compile-errors')).filter(x => x.endsWith('.java')).sort()) {
+  test(`英語表示：${f} は javac と同じ文面で、日本語が残らない`, () => {
+    const en = englishOf(readFileSync(join(ROOT, 'tests/compile-errors', f), 'utf8'));
+    assert.ok(en, 'エラーにならない');
+    assert.match(en, /^(Syntax|Compile) error \(line \d+\): /);
+    assert.ok(!JAPANESE.test(en), en);
+  });
+}
+
+for (const f of readdirSync(join(ROOT, 'tests/cases')).filter(x => x.startsWith('uncaught_') && x.endsWith('.java')).sort()) {
+  test(`英語表示：${f} は JVM と同じ 1 行で、日本語が残らない`, () => {
+    const stdinFile = join(ROOT, 'tests/cases', f.replace(/\.java$/, '.stdin'));
+    const en = englishOf(readFileSync(join(ROOT, 'tests/cases', f), 'utf8'), existsSync(stdinFile) ? readFileSync(stdinFile, 'utf8') : '');
+    assert.match(en, /^Exception in thread "main" [\w.]+(: .*)? \(line \d+\)$/);
+    assert.ok(!JAPANESE.test(en), en);
+  });
+}
+
+test('英語表示：日本語表示のときはそのまま、登録のないメッセージは JS 用の英語化に任せる', () => {
+  const ja = 'コンパイルエラー（1行目）: x';
+  assert.equal(localizeJavaError(ja, 'ja'), ja);
+  assert.equal(localizeJavaError('実行が最大ステップ数 50,000 を超えたため停止しました', 'en'), localizeErrorMessage('実行が最大ステップ数 50,000 を超えたため停止しました', 'en'));
 });

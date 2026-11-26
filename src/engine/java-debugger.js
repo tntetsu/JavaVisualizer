@@ -12,6 +12,7 @@ import { evaluate, createRecorder, createRuntime, buildClasses } from './interpr
 import { JavaError, JavaCompileError } from './values.js';
 import { toJavaException, throwableString } from './objects.js';
 import { resetRandom } from './builtins.js';
+import { registerEnglish } from './messages-en.js';
 
 /**
  * Java のノード型の役割（共通コアの NodeCategories）。ADR-003
@@ -78,6 +79,8 @@ export function runJava(source, { maxSteps = 100_000, stdin = '' } = {}) {
     const exc = err instanceof RangeError ? null : toJavaException(err);
     if (exc) {
       const wrapped = new Error(uncaughtMessage(exc, err.loc));
+      // 英語表示：本物の JVM と同じ 1 行に、行番号を添える（ADR-006）
+      registerEnglish(wrapped.message, `Exception in thread "main" ${throwableString(exc)}${err.loc ? ` (line ${err.loc.line})` : ''}`);
       wrapped.javaException = throwableString(exc);
       wrapped.javaClass = exc.cls.qualifiedName;
       err = wrapped;

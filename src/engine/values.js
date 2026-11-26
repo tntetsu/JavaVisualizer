@@ -13,6 +13,7 @@
  * | クラスのインスタンス | { __type__: 'JObject', cls, fields: {…} }（objects.js） |
  * | null | JS の null |
  */
+import { registerEnglish } from './messages-en.js';
 
 export class JavaError extends Error {
   /**
@@ -32,8 +33,13 @@ export class JavaError extends Error {
 
 /** コンパイルエラー（静的な検査で見つけた誤り）。javac は本物の javac の文面 */
 export class JavaCompileError extends Error {
+  /**
+   * @param {string} message 日本語の説明
+   * @param {string|null} javac 本物の javac の文面（英語表示で使う。ADR-006）
+   */
   constructor(message, loc, javac = null) {
     super(`コンパイルエラー（${loc?.line ?? '?'}行目）: ${message}`);
+    registerEnglish(this.message, `Compile error (line ${loc?.line ?? '?'}): ${javac ?? message}`);
     this.name = 'CompileError';
     this.loc = loc;
     this.line = loc?.line;

@@ -967,7 +967,7 @@ function _eval(node, env, rt, depth, callDepth) {
     }
     case 'InstanceofExpression': return instanceOf(ev(node.expression), node.targetType);
   }
-  throw compileError(`${node.type} はまだ対応していません`, node.loc);
+  throw compileError(`${node.type} はまだ対応していません`, node.loc, `${node.type} is not supported yet`);
 }
 
 /** メソッドの呼び出し式 */

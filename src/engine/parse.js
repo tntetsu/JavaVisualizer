@@ -12,11 +12,18 @@
  * （ArrayList<Integer> → 'ArrayList'。開発計画書 5 節）。var は 'var'。
  */
 import { parser } from '@lezer/java';
+import { registerEnglish, whatToEnglish } from './messages-en.js';
 
 /** 構文エラー（コンパイルエラーのうち、構文の誤り）。message は日本語の説明、javac は本物の javac の文面 */
 export class JavaSyntaxError extends Error {
-  constructor(message, line, column, javac = null) {
+  /**
+   * @param {string} message 日本語の説明
+   * @param {string|null} javac 本物の javac の文面（英語表示で使う。ADR-006）
+   * @param {string} [english] 英語の本文（javac の文面がないとき。まだ対応していない構文）
+   */
+  constructor(message, line, column, javac = null, english = null) {
     super(`構文エラー（${line}行目）: ${message}`);
+    registerEnglish(this.message, `Syntax error (line ${line}): ${javac ?? english ?? message}`);
     this.name = 'SyntaxError';
     this.line = line;
     this.column = column;
@@ -27,7 +34,7 @@ export class JavaSyntaxError extends Error {
 
 export class JavaUnsupportedError extends JavaSyntaxError {
   constructor(what, line, column) {
-    super(`${what} はまだ対応していません`, line, column);
+    super(`${what} はまだ対応していません`, line, column, null, `${whatToEnglish(what)} ${/s$|\)$/.test(whatToEnglish(what)) ? 'are' : 'is'} not supported yet`);
   }
 }
 

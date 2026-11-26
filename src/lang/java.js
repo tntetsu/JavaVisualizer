@@ -9,6 +9,18 @@ import { JavaDebugger, ExecutionError } from '../engine/java-debugger.js';
 import { JDouble, JChar, JString, isArray, isObject, num, literalOf } from '../engine/values.js';
 import { isClass } from '../engine/objects.js';
 import { isBuiltin } from '../engine/builtins.js';
+import { messageToEnglish } from '../engine/messages-en.js';
+import { localizeErrorMessage } from 'js-visualizer/src/utils/error-message.js';
+
+/**
+ * エラーの表示欄の文字列を表示言語に合わせる（ADR-006）。エンジンのメッセージは日本語で作られ、
+ * 英語の文面（javac・JVM と同じ）は作ったときに登録してある。登録がないもの（共通コアの「最大ステップ数を超えた」など）は、
+ * JS 用の英語化に任せる
+ */
+export function localizeJavaError(message, lang) {
+  if (lang !== 'en') return message;
+  return messageToEnglish(message) ?? localizeErrorMessage(message, lang);
+}
 
 /** Java の値の見せ方（JSVisualizer の ValueModel） */
 export const javaValueModel = {
@@ -78,7 +90,8 @@ export const createJavaProfile = (samples, { groups, defaultSample } = {}) => ({
   Debugger: JavaDebugger,
   ExecutionError,
   editorExtension: () => java(),
-  supportsInput: true,   // 入力欄を出し、実行時に { stdin } を渡す（Scanner。ADR-005）
+  supportsInput: true,
+  localizeError: localizeJavaError,   // 入力欄を出し、実行時に { stdin } を渡す（Scanner。ADR-005）
   samples,
   sampleGroups: groups ?? [{ label: '─ Samples ─', keys: Object.keys(samples) }],
   defaultSample: defaultSample ?? Object.keys(samples)[0],

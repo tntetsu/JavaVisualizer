@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JavaVisualizer User Manual</title>
+  <!--
+    User manual for JavaVisualizer (English). The Japanese version is manual.html.
+    Adapted for Java from the PyVisualizer manual (as of 2026-11-26); maintained in JavaVisualizer from now on.
+    Screenshots are in manual/en (Japanese: manual/ja). Re-take them with `node scripts/capture-manual-screenshots.mjs`
+    after changing the screen. The build (scripts/build.mjs) copies them into web/.
+  -->
+  <style>
+    :root {
+      --bg: #fafafa;
+      --surface: #ffffff;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --muted: #59636e;
+      --accent: #0969da;
+      --notice-bg: #eef5ff;
+      --notice-border: #0969da;
+      --code-bg: #f3f4f6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.8;
+    }
+    header.page-header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1rem;
+    }
+    header.page-header .inner, main { max-width: 880px; margin: 0 auto; }
+    header.page-header .inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+    header.page-header h1 { margin: 0; font-size: 1.25rem; }
+    header.page-header .lang { font-size: 0.9rem; white-space: nowrap; }
+    main { padding: 1rem 1rem 4rem; }
+    h2 {
+      margin-top: 3rem;
+      padding-bottom: 0.3rem;
+      border-bottom: 2px solid var(--border);
+      font-size: 1.35rem;
+    }
+    h3 { margin-top: 2rem; font-size: 1.1rem; }
+    a { color: var(--accent); }
+    code, kbd {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.9em;
+    }
+    code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+    kbd {
+      display: inline-block;
+      min-width: 1.6em;
+      padding: 0 0.4em;
+      border: 1px solid var(--border);
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      background: var(--surface);
+      text-align: center;
+      line-height: 1.5;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      background: var(--surface);
+      font-size: 0.95rem;
+    }
+    th, td { border: 1px solid var(--border); padding: 0.45rem 0.6rem; text-align: left; vertical-align: top; }
+    td { overflow-wrap: anywhere; } /* 表内の長いURLで表が画面幅を超えないようにする */
+    th { background: var(--code-bg); white-space: nowrap; }
+    table.nowrap-first td:first-child { white-space: nowrap; }
+    figure { margin: 1.25rem 0; }
+    figure img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+    figcaption { margin-top: 0.35rem; color: var(--muted); font-size: 0.9rem; }
+    .notice {
+      margin: 1.5rem 0;
+      padding: 0.75rem 1.25rem;
+      border: 1px solid var(--notice-border);
+      border-left-width: 6px;
+      border-radius: 6px;
+      background: var(--notice-bg);
+    }
+    .tip {
+      margin: 1rem 0;
+      padding: 0.6rem 1rem;
+      border-left: 4px solid var(--accent);
+      background: var(--surface);
+    }
+    nav.toc {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.75rem 1.25rem;
+    }
+    nav.toc ol { margin: 0.25rem 0; padding-left: 1.5rem; }
+    .view-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1rem; }
+    .view-grid figure { margin: 0; }
+    .hl { padding: 0 0.3em; border-radius: 3px; }
+    .hl-line { background: #dbe9fb; border-left: 3px solid #1e66f5; }
+    .hl-expr { background: #f5d9a8; }
+    .hl-call { border-bottom: 2px dashed #b36bd6; }
+    @media (max-width: 480px) {
+      .view-grid { grid-template-columns: 1fr; }
+      th { white-space: normal; }
+      table.nowrap-first td:first-child { white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+  <header class="page-header">
+    <div class="inner">
+      <h1>JavaVisualizer User Manual</h1>
+      <a class="lang" href="manual.html" hreflang="ja" lang="ja">日本語</a>
+    </div>
+  </header>
+
+  <main>
+    <p>JavaVisualizer is a web app for learning how a Java program runs <strong>step by step</strong>, by watching it through a variety of visualizations. It uses the same screen and views as <a href="https://tntetsu.github.io/JSVisualizer/">JSVisualizer</a> (JavaScript) and <a href="https://tntetsu.github.io/PyVisualizer/">PyVisualizer</a> (Python).</p>
+    <ul>
+      <li>Just open it in an up-to-date desktop browser (Chrome, Edge, Firefox, Safari, etc.). No installation or sign-in is needed, and you do not need to install Java (the JDK).</li>
+      <li>Programs run on a Java interpreter built into JavaVisualizer. It is separate from Java itself; see <a href="#code">“2. Preparing code”</a> for the supported part of Java. Its results have been checked against real Java on many programs.</li>
+      <li>As in real Java, the program is compiled before it runs, and mistakes such as type errors are reported first (see <a href="#mode">When an error occurs</a>).</li>
+      <li>All code runs inside your browser. Your code and your operations are never sent to a server.</li>
+    </ul>
+
+    <nav class="toc" aria-label="Contents">
+      <strong>Contents</strong>
+      <ol>
+        <li><a href="#screen">Screen layout</a></li>
+        <li><a href="#code">Preparing code</a></li>
+        <li><a href="#mode">Edit mode and Run mode</a></li>
+        <li><a href="#step">Stepping</a></li>
+        <li><a href="#highlight">Code highlighting</a></li>
+        <li><a href="#views">Visualization views</a></li>
+        <li><a href="#other">Other features</a></li>
+        <li><a href="#trouble">Troubleshooting</a></li>
+      </ol>
+    </nav>
+
+    <!-- ─────────────────────────────── -->
+    <section id="screen">
+      <h2>1. Screen layout</h2>
+      <figure>
+        <img src="manual/en/screen-run.png" alt="The screen in Run mode: stepping buttons and a slider at the top, highlighted code on the left, view tabs and the console on the right" width="1280" height="800" loading="lazy" />
+        <figcaption>The screen in Run mode</figcaption>
+      </figure>
+      <table>
+        <thead><tr><th>Area</th><th>Contents</th></tr></thead>
+        <tbody>
+          <tr><td>Top</td><td>The Edit and Run buttons, the sample selector (in Edit mode), and the stepping buttons and slider (in Run mode). At the right end: user manual (<strong>?</strong>), display language (<strong>EN</strong> / <strong>日</strong>), and settings (<strong>⚙</strong>)</td></tr>
+          <tr><td>Left (Source)</td><td>The code. You can edit it in Edit mode; in Run mode it highlights where execution currently is</td></tr>
+          <tr><td>Right</td><td>The visualization views. Switch between them with the tabs at the top; a one-line description of the current view appears below the tabs</td></tr>
+          <tr><td>Bottom left (Input)</td><td>A box where you write, in advance, the values that <code>Scanner</code> reads (see <a href="#input">Using Scanner</a>)</td></tr>
+          <tr><td>Bottom right (Console)</td><td>Output from <code>System.out.println()</code> and the like. It stays visible whichever view is selected</td></tr>
+        </tbody>
+      </table>
+      <p>Drag the border between the left and right panes to resize them. Drag the top edge of the console to change its height.</p>
+    </section>
+
+    <!-- ─────────────────────────────── -->
+    <section id="code">
+      <h2>2. Preparing code</h2>
+      <p>When you first open the app, it contains a sample program (the Fibonacci sequence).</p>
+
+      <h3>Choosing a sample</h3>
+      <p>In edit mode, you can choose from 24 sample programs with the <strong>sample selector</strong> (drop-down) at the top.</p>
+      <figure>
+        <img src="manual/en/screen-edit.png" alt="Edit mode: Edit and Run buttons and the sample selector at the top, bubble sort code on the left" width="1280" height="800" loading="lazy" />
+        <figcaption>Edit mode (with the “Bubble Sort” sample selected)</figcaption>
+      </figure>
+      <table>
+        <thead><tr><th>Group</th><th>Samples</th></tr></thead>
+        <tbody>
+          <tr><td>Search</td><td>Linear Search, Binary Search</td></tr>
+          <tr><td>Sort (basic)</td><td>Bubble Sort, Selection Sort</td></tr>
+          <tr><td>Sort (advanced)</td><td>Quick Sort, Merge Sort</td></tr>
+          <tr><td>Sort (objects)</td><td>Sort objects by a numeric key, by a string key</td></tr>
+          <tr><td>Math / Algorithms</td><td>Euclid GCD (loop / recursive), Factorial, Fibonacci (recursive / DP)</td></tr>
+          <tr><td>Data Structures</td><td>Binary Tree, Linked List</td></tr>
+          <tr><td>Classes</td><td><code>static</code> and instance fields, Class &amp; Inheritance</td></tr>
+          <tr><td>Java</td><td>Types &amp; references (integer division, <code>int</code> overflow, casts, <code>==</code> vs <code>equals</code>), Exceptions (<code>try</code>/<code>catch</code>), Input (<code>Scanner</code>)</td></tr>
+          <tr><td>Study Tasks</td><td>Practice tasks (finding a bug, counting calls, tracing an intermediate state, etc.)</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Writing your own code</h3>
+      <p>In edit mode you can freely change the code on the left, or paste code written elsewhere. When you are done, press “▶ Run”.</p>
+      <ul>
+        <li>Write the program in one file. It runs <code>public static void main(String[] args)</code> of the <strong>first class</strong> (the same as <code>java Main.java</code>). You can write other classes in the same file.</li>
+        <li>Use <code>System.out.println()</code>, <code>System.out.print()</code> and <code>System.out.printf()</code> to check results; output appears in the console. Values read by <code>Scanner</code> are written in advance in the “Input” box (see <a href="#input">Using Scanner</a>). Reading and writing files is not available.</li>
+        <li>Edited code is not saved. Reloading the page restores the original, so keep a copy of any code you want to keep.</li>
+      </ul>
+      <p>The supported part of Java is as follows.</p>
+      <table>
+        <thead><tr><th></th><th>Contents</th></tr></thead>
+        <tbody>
+          <tr><td>Types</td><td><code>int</code>, <code>long</code>, <code>short</code>, <code>byte</code>, <code>double</code>, <code>char</code>, <code>boolean</code>, <code>String</code>, arrays (one- and two-dimensional), your own classes, <code>var</code></td></tr>
+          <tr><td>Statements</td><td>Variable declarations and assignments (including <code>+=</code>, <code>++</code>, etc.), <code>if</code>/<code>else</code>, <code>while</code>, <code>do</code>/<code>while</code>, <code>for</code>, enhanced <code>for</code> (<code>for (int x : a)</code>), <code>switch</code> (both <code>case 1:</code> and <code>case 1 -&gt;</code>), <code>break</code>/<code>continue</code>, <code>return</code>, <code>try</code>/<code>catch</code>/<code>finally</code>, <code>throw</code></td></tr>
+          <tr><td>Expressions</td><td>Arithmetic (integer division and overflow behave as in real Java), comparisons, <code>&amp;&amp;</code>/<code>||</code>/<code>!</code>, bitwise operators and shifts, the conditional operator <code>? :</code>, casts, <code>instanceof</code>, string concatenation</td></tr>
+          <tr><td>Methods</td><td><code>static</code> methods, instance methods, recursion, overloading</td></tr>
+          <tr><td>Classes</td><td>Fields, constructors, <code>this</code>, <code>static</code> fields, constants (<code>static final</code>), inheritance with <code>super</code> and overriding, your own exceptions (<code>extends Exception</code>, etc.)</td></tr>
+          <tr><td>Standard library</td><td><code>System.out.println</code>/<code>print</code>/<code>printf</code>, <code>String.format</code>, the main <code>String</code> methods (<code>length</code>, <code>charAt</code>, <code>substring</code>, <code>indexOf</code>, <code>equals</code>, <code>compareTo</code>, <code>split</code>, etc.), <code>Math</code>, <code>Integer.parseInt</code>, <code>Integer.MAX_VALUE</code>, <code>Double.parseDouble</code>, the main <code>Character</code> methods, <code>Arrays.toString</code>, <code>Arrays.sort</code>, <code>Scanner</code></td></tr>
+          <tr><td>Not yet supported</td><td><code>float</code>, interfaces, <code>enum</code>, <code>record</code>, lambda expressions, generics (such as <code>ArrayList&lt;Integer&gt;</code>), <code>ArrayList</code>/<code>HashMap</code>, inner classes, <code>switch</code> expressions, reading and writing files. Using them gives an error saying they are not supported yet</td></tr>
+        </tbody>
+      </table>
+      <p>Some displays differ from real Java.</p>
+      <ul>
+        <li><code>NullPointerException</code> messages name what was <code>null</code> using variable names (<code>because "n.next" is null</code>), as when running in an IDE</li>
+        <li>The number in <code>Point@1b6d3586</code> (the hash code) when printing an object differs from real Java</li>
+        <li><code>Math.random()</code> returns the same sequence every run (the values differ from real Java)</li>
+      </ul>
+      <p>Method calls stop with a <code>StackOverflowError</code> when nested deeper than about 200 levels (real Java allows thousands or more).</p>
+
+      <h3 id="input">Using Scanner</h3>
+      <p>JavaVisualizer runs the whole program first and then lets you step through it, so you cannot type input while it is running. Write the values that <code>Scanner</code> reads in the <strong>“Input” box</strong> below the source before pressing “▶ Run”.</p>
+      <ul>
+        <li>Write <code>import java.util.Scanner;</code> and create it with <code>Scanner sc = new Scanner(System.in);</code></li>
+        <li><code>sc.nextInt()</code>, <code>sc.nextDouble()</code> and <code>sc.next()</code> read the next value separated by spaces or new lines. <code>sc.nextLine()</code> reads the rest of the line (a <code>nextLine()</code> right after <code>nextInt()</code> returns the rest of that line — an empty string — as in real Java)</li>
+        <li>If there are not enough values you get a <code>NoSuchElementException</code>; if a value cannot be read as a number, an <code>InputMismatchException</code></li>
+      </ul>
+
+      <h3>Opening a shared link</h3>
+      <p>If you open JavaVisualizer from a link that points to specific code (for example, one handed out in a class or in course materials), the app starts with that code loaded. The sample selector then lists only the linked code instead of the built-in samples (and cannot be changed when there is only one piece of code).</p>
+    </section>
+
+    <!-- ─────────────────────────────── -->
+    <section id="mode">
+      <h2>3. Edit mode and Run mode</h2>
+      <table>
+        <thead><tr><th>Button</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><strong>✏ Edit</strong></td><td>Switches to Edit mode, where you can edit the code freely. The sample selector is available only in this mode</td></tr>
+          <tr><td><strong>▶ Run</strong></td><td>Runs the code and switches to Run mode. The program runs to completion at once and every step is recorded. You can then use the stepping buttons to <strong>move forward and backward to any point</strong> and look at the state at that moment</td></tr>
+        </tbody>
+      </table>
+      <p>After editing the code, press “Run” again to re-run it with your changes.</p>
+
+      <h3>When an error occurs</h3>
+      <p>If the code has a mistake, an error message appears below the code. As in real Java, some mistakes are found before the program runs (syntax and compile errors) and others while it runs (runtime errors).</p>
+      <table>
+        <thead><tr><th>Label</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Syntax Error</strong></td><td>The code cannot run because of how it is written (a missing <code>;</code>, a missing bracket, etc.). The message shows the line of the mistake</td></tr>
+          <tr><td><strong>Compile Error</strong></td><td>The code is written correctly, but types do not match (<code>int x = 3.5;</code>), a variable is not declared or is used before it has a value, a <code>return</code> is missing, etc. <strong>Mistakes are found before running, even in code that would not run.</strong> The messages are the same as the Java compiler (<code>javac</code>)</td></tr>
+          <tr><td><strong>Runtime Error</strong></td><td>An exception occurred while the program was running and nothing caught it (an array index out of range, an integer divided by zero, a field of <code>null</code>, etc.). The message is the same as real Java (<code>Exception in thread "main" java.lang.ArithmeticException: / by zero</code>). You can still step through everything up to just before the error</td></tr>
+        </tbody>
+      </table>
+      <figure>
+        <img src="manual/en/error.png" alt="The line that assigns price * 1.1 to an int is highlighted in red; a Compile Error badge and the message “incompatible types: possible lossy conversion from double to int” appear below the code" loading="lazy" style="max-width: min(380px, 100%)" />
+        <figcaption>A compile error</figcaption>
+      </figure>
+      <p>If execution exceeds <strong>50,000 steps</strong>, it is stopped and reported as a runtime error, since the program may be stuck (for example, in a loop that never ends). You can step through everything up to the point where it stopped.</p>
+    </section>
+
+    <!-- ─────────────────────────────── -->
+    <section id="step">
+      <h2>4. Stepping</h2>
+      <p>In Run mode, the buttons at the top let you <strong>move execution forward or backward one step at a time</strong>. There are four kinds of buttons, each moving by a different amount, and each has a “back” and a “forward” version.</p>
+      <figure>
+        <img src="manual/en/step-controls.png" alt="The row of stepping buttons: start, end, Func, Human, Stmt, and Expr buttons, the slider, and the step counter" loading="lazy" />
+        <figcaption>Stepping buttons (from the left: go to start, go to end, Func, Human, Stmt, Expr, the slider, and the step counter)</figcaption>
+      </figure>
+
+      <h3>Four granularities</h3>
+      <table class="nowrap-first">
+        <thead><tr><th>Buttons</th><th>Granularity</th><th>One press moves</th></tr></thead>
+        <tbody>
+          <tr><td>◀ Expr / ▶ Expr</td><td>Finest</td><td>One expression evaluation at a time. For <code>a[j] &gt; a[j + 1]</code> it stops at the value of <code>a[j]</code>, the value of <code>a[j + 1]</code>, and then the result of the comparison. Use it to see the order in which an expression is computed</td></tr>
+          <tr><td>◁ Human / ▷ Human</td><td>Medium (<strong>start here</strong>)</td><td>One <strong>meaningful change — the kind of thing a person would write down when tracing on paper</strong>: an assignment, an if condition, a loop condition, the loop variable of an enhanced for loop taking its next value, a method call, an exception being caught, and so on</td></tr>
+          <tr><td>◀◀ Stmt / ▶▶ Stmt</td><td>Coarse</td><td>One statement at a time, skipping the detailed computation inside it</td></tr>
+          <tr><td>⏪ Func / ⏩ Func</td><td>Coarsest</td><td>Straight to the next point where a method is entered or returns. Use it to follow the overall flow of recursive calls</td></tr>
+        </tbody>
+      </table>
+      <p class="tip">If in doubt, step with “▷ Human”. Use “▶ Expr” only where you want more detail, and “▶▶ Stmt” or “⏩ Func” to fast-forward through loops and method calls.</p>
+
+      <h3>Other controls</h3>
+      <table>
+        <thead><tr><th>Control</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>⏮</td><td>Goes back to the start (the beginning of execution)</td></tr>
+          <tr><td>⏭</td><td>Goes to the end (where execution finished)</td></tr>
+          <tr><td>Slider</td><td>Drag the handle to jump to any point</td></tr>
+          <tr><td>Step counter (e.g. <code>180 / 874</code>)</td><td>The current step out of the total, counted in the finest (Expr) steps</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Keyboard shortcuts</h3>
+      <p>You can also use these keys (upper-case letters mean holding <kbd>Shift</kbd>).</p>
+      <table>
+        <thead><tr><th>Granularity</th><th>Back</th><th>Forward</th></tr></thead>
+        <tbody>
+          <tr><td>Expr</td><td><kbd>←</kbd> or <kbd>b</kbd></td><td><kbd>→</kbd> or <kbd>n</kbd></td></tr>
+          <tr><td>Human</td><td><kbd>H</kbd></td><td><kbd>h</kbd></td></tr>
+          <tr><td>Stmt</td><td><kbd>V</kbd></td><td><kbd>v</kbd></td></tr>
+          <tr><td>Func</td><td><kbd>F</kbd></td><td><kbd>f</kbd></td></tr>
+          <tr><td>Start / End</td><td><kbd>Home</kbd></td><td><kbd>End</kbd></td></tr>
+        </tbody>
+      </table>
+      <p>Keys <kbd>1</kbd>–<kbd>9</kbd> switch to the first to ninth view tab from the left.</p>
+    </section>
+
+    <!-- ─────────────────────────────── -->
+    <section id="highlight">
+      <h2>5. Code highlighting</h2>
+      <p>In Run mode, the code on the left shows where execution is with three kinds of marks.</p>
+      <table>
+        <thead><tr><th>Mark</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><span class="hl hl-line">Blue band</span> (blue bar at the left of the line)</td><td>The <strong>line</strong> being executed</td></tr>
+          <tr><td><span class="hl hl-expr">Orange background</span></td><td>The <strong>expression</strong> being evaluated</td></tr>
+          <tr><td><span class="hl hl-call">Purple dashed underline</span></td><td>While inside a method, <strong>the expression that called that method</strong> (the call site)</td></tr>
+        </tbody>
+      </table>
+      <div class="view-grid">
+        <figure>
+          <img src="manual/en/code-highlight-line.png" alt="Bubble sort code with line 7 highlighted by a blue band and the call on line 19 underlined with a purple dashed line" loading="lazy" />
+          <figcaption>Executing line 7. The method <code>bubbleSort</code> was called from line 19 (purple dashes)</figcaption>
+        </figure>
+        <figure>
+          <img src="manual/en/code-highlight-call.png" alt="Recursive fib code: the condition in orange, and the call site fib(n - 1) underlined with purple dashes" loading="lazy" />
+          <figcaption>Evaluating the condition (orange). This call of <code>fib</code> came from <code>fib(n - 1)</code> (purple dashes)</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ─────────────────────────────── -->
+    <section id="views">
+      <h2>6. Visualization views</h2>
+      <p>The right side of the screen shows the program’s behavior in many different forms. Use the tabs at the top to switch among 12 views. Which view is easiest to understand depends on what you want to know, so try several and find the ones that work for you.</p>
+      <ul>
+        <li>Some views cannot be used with some code; their tabs are grayed out (for example, “Subst” is unavailable for code that calls no methods other than main).</li>
+        <li>The tab you used last is selected again the next time you open the app.</li>
+      </ul>
+
+      <h3>How the views are organized</h3>
+      <p>The 12 views can be organized along two dimensions: <strong>what you look at</strong> and <strong>how time is shown</strong>.</p>
+      <p><strong>What you look at</strong> falls into three groups:</p>
+      <ul>
+        <li><strong>State</strong>: the values the program holds at a given moment (variable values, the methods being called, the contents of memory)</li>
+        <li><strong>Behavior</strong>: how the program proceeds over time (the order in which expressions are computed, the order and number of times statements run, the order of method calls). Expressions, statements, and methods correspond to the Expr, Stmt, and Func granularities of <a href="#step">stepping</a></li>
+        <li><strong>Arrays and objects</strong>: data that holds several values together</li>
+      </ul>
+      <p><strong>How time is shown</strong> comes in two kinds:</p>
+      <ul>
+        <li><strong>Views of one moment</strong> (animation): show only the current moment and change each time you step</li>
+        <li><strong>Views of the whole run</strong> (timeline): use one direction of the screen for the flow of time and show the course of execution all at once, with the current moment highlighted</li>
+      </ul>
+      <table>
+        <thead><tr><th colspan="2">What you look at</th><th>One moment</th><th>Whole run</th></tr></thead>
+        <tbody>
+          <tr><td rowspan="3"><strong>State</strong></td><td>Variable values</td><td>Variable</td><td>Exec Trace</td></tr>
+          <tr><td>Methods being called</td><td>Call Stack</td><td>Lifetime</td></tr>
+          <tr><td>Contents of memory</td><td>Memory</td><td>—</td></tr>
+          <tr><td rowspan="3"><strong>Behavior</strong></td><td>Computing expressions</td><td>Expr</td><td>Subst</td></tr>
+          <tr><td>Running statements</td><td>Control Flow</td><td>Heatmap</td></tr>
+          <tr><td>Calling methods</td><td>Call Tree</td><td>—</td></tr>
+          <tr><td rowspan="2"><strong>Arrays and objects</strong></td><td>Arrays</td><td>Arrays</td><td>Exec Trace</td></tr>
+          <tr><td>Objects</td><td>Objects</td><td>—</td></tr>
+        </tbody>
+      </table>
+      <p class="tip">Comparing the same thing in a “one moment” view and a “whole run” view deepens understanding. For example, to see how a variable changes inside a loop, check its current value in “Variable” while lining up the values of each iteration in “Exec Trace”.</p>
+
+      <h3>Views of state</h3>
+      <table>
+        <thead><tr><th>Tab</th><th>Time</th><th>Contents</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Variable</strong></td><td>One moment</td><td>A table of code lines (rows) × variables (columns). Each row shows the variable values when that line last ran; values that changed since the previous step are in bold orange. You can show/hide columns and reorder them by dragging</td></tr>
+          <tr><td><strong>Exec Trace</strong></td><td>Whole run</td><td>Lists the steps where assignments, condition tests, and the like happened, in execution order from top to bottom, with the variable values at each step and whether each condition was true or false. For code that uses arrays, each step also shows a small diagram of the array and where variables such as <code>i</code> and <code>j</code> point, so you can compare iterations</td></tr>
+          <tr><td><strong>Call Stack</strong></td><td>One moment</td><td>Shows all current variable values, grouped by each method call in progress, together with their types (<code>int x = 3</code>). <code>static</code> fields appear under “static”. Inside methods you can see that every call has its own variables. When the program has finished, <code>main</code> has finished too, so nothing is shown</td></tr>
+          <tr><td><strong>Lifetime</strong></td><td>Whole run</td><td>With time running horizontally and call depth vertically, shows each method call as a band from when it started to when it ended. Each band is labeled with the method name, its arguments, and that call’s variable values, showing how long arguments and local variables exist. The vertical dashed line marks the current moment</td></tr>
+          <tr><td><strong>Memory</strong></td><td>One moment</td><td>Draws variables (the stack) and the actual arrays, objects and strings (<code>String</code>) (the heap) separately, with arrows showing what each variable refers to. Two variables referring to the same array, or two strings for which <code>==</code> is <code>true</code>, point to the same box</td></tr>
+        </tbody>
+      </table>
+      <div class="view-grid">
+        <figure><img src="manual/en/view-trace.png" alt="Variable view: a table with line numbers and code snippets down the side and variables across the top" loading="lazy" /><figcaption>Variable</figcaption></figure>
+        <figure><img src="manual/en/view-exectrace.png" alt="Exec Trace view: a table with, for each step, the line number, code, an array diagram, variable values, and condition results" loading="lazy" /><figcaption>Exec Trace</figcaption></figure>
+        <figure><img src="manual/en/view-callstack.png" alt="Call Stack view: the global frame and a frame for each fib call showing the value of n" loading="lazy" /><figcaption>Call Stack</figcaption></figure>
+        <figure><img src="manual/en/view-lifetime.png" alt="Lifetime view: time runs horizontally and call depth vertically, with each fib call drawn as a stacked band" loading="lazy" /><figcaption>Lifetime</figcaption></figure>
+        <figure><img src="manual/en/view-memory.png" alt="Memory view: stack variables on the left, a heap array on the right, and an arrow from the variable to the array" loading="lazy" /><figcaption>Memory</figcaption></figure>
+      </div>
+
+      <h3>Views of behavior</h3>
+      <table>
+        <thead><tr><th>Tab</th><th>Time</th><th>Contents</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Expr</strong></td><td>One moment</td><td>Shows how the one-line expression being computed turns into its final value as its parts are replaced by values. Orange marks the part just replaced; bold blue marks the part computed next. Parts skipped by <code>&amp;&amp;</code> or <code>||</code> stay as they are</td></tr>
+          <tr><td><strong>Subst</strong></td><td>Whole run</td><td>Shows, from top to bottom, how recursive calls expand as each call is replaced by the expression it returns: <code>fib(5)</code> → <code>fib(4) + fib(3)</code> → …</td></tr>
+          <tr><td><strong>Control Flow</strong></td><td>One moment</td><td>For each method, a flowchart that splits each if into true and false columns, draws a <code>switch</code> as a branch for each <code>case</code>, and indents loop bodies, with the current line emphasized. Each row's “×N” is how many times it ran over the whole run, and rows that never ran are grayed out. Deeply nested flowcharts scroll horizontally</td></tr>
+          <tr><td><strong>Heatmap</strong></td><td>Whole run</td><td>Shows how many times each line ran, as color intensity and “count so far / total”. The dots on the right show when each line ran, so lines repeated in loops stand out at a glance</td></tr>
+          <tr><td><strong>Call Tree</strong></td><td>One moment</td><td>Shows method calls as a tree. Each node shows arguments and the return value; dashed gray means not yet called, thick blue means running, and green means finished. The <code>cost</code> at the bottom left is the number of calls in that node’s subtree (including itself) — handy for checking how many times a recursive method is called</td></tr>
+        </tbody>
+      </table>
+      <div class="view-grid">
+        <figure><img src="manual/en/view-exprtrace.png" alt="Expr view: parts of an expression being replaced by values, one row per step" loading="lazy" /><figcaption>Expr</figcaption></figure>
+        <figure><img src="manual/en/view-subst.png" alt="Subst view: fib(5) expanding into fib(4) + fib(3) and so on" loading="lazy" /><figcaption>Subst</figcaption></figure>
+        <figure><img src="manual/en/view-controlflow.png" alt="Control Flow view: a flowchart with if branches split into true and false columns and loop bodies indented" loading="lazy" /><figcaption>Control Flow</figcaption></figure>
+        <figure><img src="manual/en/view-heatmap.png" alt="Heatmap view: execution count and color intensity for each line, with dots showing when each line ran" loading="lazy" /><figcaption>Heatmap</figcaption></figure>
+        <figure><img src="manual/en/view-calltree.png" alt="Call Tree view: a tree rooted at fib(5) branching into fib(4) and fib(3) and so on" loading="lazy" /><figcaption>Call Tree</figcaption></figure>
+      </div>
+
+      <h3>Views of arrays and objects</h3>
+      <table>
+        <thead><tr><th>Tab</th><th>Time</th><th>Contents</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Arrays</strong></td><td>One moment</td><td>Shows array elements as cells colored by value. For variables used as indexes, such as <code>i</code> and <code>j</code>, the element they point to is marked below the cells. Choose which arrays to show with the buttons at the top. To see an array over the whole run, use “Exec Trace”</td></tr>
+          <tr><td><strong>Objects</strong></td><td>One moment</td><td>Shows references between arrays and objects as a graph — well suited to linked lists and trees</td></tr>
+        </tbody>
+      </table>
+      <div class="view-grid">
+        <figure><img src="manual/en/view-colorbox.png" alt="Arrays view: array elements shown as cells, with the element pointed to by an index variable marked" loading="lazy" /><figcaption>Arrays</figcaption></figure>
+        <figure><img src="manual/en/view-objgraph.png" alt="Objects view: three linked-list nodes connected by next arrows" loading="lazy" /><figcaption>Objects (the “Linked List” sample)</figcaption></figure>
+      </div>
+      <p>The tab order differs from the grouping above (from the left: Call Stack, Variable, Exec Trace, Subst, Expr, Arrays, Heatmap, Call Tree, Lifetime, Control Flow, Memory, Objects). This organization follows Table 1 of Tanaka &amp; Ueda, “Proposal for Program Execution Environment that Visualizes Program Behavior Using Multiple Views” (IS-26-049).</p>
+    </section>
+
+    <!-- ─────────────────────────────── -->
+    <section id="other">
+      <h2>7. Other features</h2>
+      <table>
+        <thead><tr><th>Button</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><strong>?</strong> at the top right</td><td>Opens this manual (in Japanese or English, matching the display language)</td></tr>
+          <tr><td><strong>EN</strong> / <strong>日</strong> at the top right</td><td>Switches buttons, tabs, and error messages between English and Japanese. English error messages are the same as real Java (<code>javac</code> and runtime exceptions). Exception messages your program prints (such as <code>e.getMessage()</code>) are always the same English as real Java. On your first visit, the app uses Japanese if your browser prefers Japanese, and English otherwise</td></tr>
+          <tr><td><strong>⚙</strong> at the top right</td><td>Switches between the light and dark themes. “Session Log” at the bottom of the settings panel is a feature for evaluation studies and is not needed in normal use (it records only inside your browser and can save the log as a JSON or CSV file)</td></tr>
+        </tbody>
+      </table>
+      <p>The theme, language, pane widths, console height, and last-used tab are saved in your browser and restored the next time you open the app.</p>
+    </section>
+
+    <!-- ─────────────────────────────── -->
+    <section id="trouble">
+      <h2>8. Troubleshooting</h2>
+      <table>
+        <thead><tr><th>Problem</th><th>What to do</th></tr></thead>
+        <tbody>
+          <tr><td>The stepping buttons are not shown</td><td>You are in Edit mode. Press “▶ Run”</td></tr>
+          <tr><td>The sample selector is not shown</td><td>You are in Run mode. Press “✏ Edit”</td></tr>
+          <tr><td><code>NoSuchElementException</code> saying there is no more input</td><td><code>Scanner</code> has no more values to read. Write the values in the “Input” box below the source (see <a href="#input">Using Scanner</a>)</td></tr>
+          <tr><td>A message says the first class has no <code>public static void main(String[] args)</code></td><td>The program runs from the first class. Put the class with the <code>main</code> method at the top of the file (after any <code>import</code> lines)</td></tr>
+          <tr><td>A message says something is not supported yet</td><td>That part of Java is not supported by JavaVisualizer yet (see the table in <a href="#code">2. Preparing code</a>). Rewrite it in a supported way (for example, use an array instead of <code>ArrayList</code>)</td></tr>
+          <tr><td>An error is reported in code that does not run</td><td>As in real Java, compile errors are found by checking the whole program before it runs. Fix the line with the error</td></tr>
+          <tr><td>The sample selector cannot be changed</td><td>You opened a link to a single piece of code. To use the built-in samples, open <a href="index.html">the JavaVisualizer top page</a> again</td></tr>
+          <tr><td>A Runtime Error says execution stopped because it exceeded the maximum of 50,000 steps</td><td>A loop or recursion may never end. Step through up to where it stopped and check the exit condition. If the program simply does a lot of work, use smaller data</td></tr>
+          <tr><td>Keyboard shortcuts do not work</td><td>If the cursor is in an input area such as the code editor, keys go there. In Run mode, click somewhere else on the screen first</td></tr>
+          <tr><td>A tab is grayed out</td><td>That view cannot be used with this code (e.g., “Subst” for code that calls no methods other than main)</td></tr>
+          <tr><td>The screen does not display correctly</td><td>Use an up-to-date desktop browser; reloading the page may help (smartphones are not supported)</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

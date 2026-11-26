@@ -17,7 +17,7 @@
 - 言語ごとの差（ノードの分類・値の見せ方・エディタ・サンプル・エラーメッセージの英語化）は**言語プロファイル**でフロントエンドに渡す
 - パーサーは `@lezer/java` ＋ 自前の AST 変換（構文エラーの説明は自前）
 
-**現在のステータス**: Phase 0（スパイク、2026-11-25）と Phase 1（土台の調整、2026-11-26）が終わり、**Phase 2（エンジンの MVP）を進めている**（[docs/development-plan.md](docs/development-plan.md) 4 節の表）。報告書は [docs/phase0-report.md](docs/phase0-report.md)・[docs/phase1-report.md](docs/phase1-report.md)。共通コアと画面は、言語プロファイルの省略できる項目で Java に合わせ、JS 版の画面が変わらないことを確かめた（3,050 件一致）。GitHub のリポジトリは非公開（`tntetsu/JavaVisualizer`。公開は Phase 4 で決める）。公開設定を変えるときは確認を取る。
+**現在のステータス**: Phase 0（スパイク、2026-11-25）・Phase 1（土台の調整）・Phase 2（エンジンの MVP、2026-11-26）が終わった。次は **Phase 3（言語プロファイル：値の見せ方・英語表示）**（[docs/development-plan.md](docs/development-plan.md) 4 節の表）。報告書は [docs/phase0-report.md](docs/phase0-report.md)〜[docs/phase2-report.md](docs/phase2-report.md)。共通コアと画面は、言語プロファイルの省略できる項目で Java に合わせ、JS 版の画面が変わらないことを確かめた（3,050 件一致）。GitHub のリポジトリは非公開（`tntetsu/JavaVisualizer`。公開は Phase 4 で決める）。公開設定を変えるときは確認を取る。
 
 ## 関連リポジトリ
 

@@ -58,6 +58,6 @@
 
 ```bash
 npm test                                    # 183 件（java が必要。約 1 分）
-node scripts/run.mjs tests/cases/scanner_basic.java < /dev/null   # エンジンだけで実行（入力は runOurs で渡す）
+node scripts/run.mjs tests/cases/scanner_basic.java tests/cases/scanner_basic.stdin   # エンジンだけで実行（2 つ目は入力）
 java tests/tools/TraceStates.java tests/cases/scanner_basic.java tests/cases/scanner_basic.stdin
 ```

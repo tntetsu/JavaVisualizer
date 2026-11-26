@@ -113,10 +113,6 @@
       "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
     },
     {
-      "code": "throw compileError(`変数 ${name} はすでに宣言されています`, decl.loc, `variable ${name} is already defined in method`);",
-      "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
-    },
-    {
       "code": "throw new Error(`unknown literal ${node.jtype}`);",
       "why": "パーサーが作らないリテラルの種類（守りの行）"
     },

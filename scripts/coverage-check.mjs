@@ -10,7 +10,9 @@
  *   2. テストで届かない理由を tests/coverage-allowlist.json に書く（静的な検査が先に止める守りの行など）
  * 登録は「ファイル・行の中身（前後の空白を除く）・その中身の何番目か」で照らし合わせる。行番号はコードを直すとずれるため使わない。
  * 登録した行が通るようになった・消えたときは「古い登録」として表示する（登録から外す）。
- * 理由のない行・古い登録があれば終了コード 1。
+ * 理由のない行があれば終了コード 1。古い登録は、表示するだけで失敗にはしない：Node のカバレッジは、テストのファイルごとの
+ * プロセスの結果を合わせるときに、実際には通っていない行（守りの throw など）を通ったと数えることがある（2026-11-26、
+ * テストのファイルを足しただけで interpreter.js の throw の行が「通った」になった。どのテストを単独で流しても 0 回）。
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -75,7 +77,7 @@ if (fresh.length) {
   for (const u of fresh) console.log(`  ${u.file}:${u.line}  ${u.code.slice(0, 120)}${u.nth ? `（同じ中身の ${u.nth + 1} 番目）` : ''}`);
 }
 if (stale.length) {
-  console.log(`\n古い登録 ${stale.length} 件（今はテストが通っている・コードがない。tests/coverage-allowlist.json から外す）：`);
+  console.log(`\n古い登録 ${stale.length} 件（今はテストが通っている・コードがない。tests/coverage-allowlist.json から外す。測り方のぶれのこともあるので、失敗にはしない）：`);
   for (const a of stale) console.log(`  ${a.file}  ${a.code.slice(0, 120)}`);
 }
 if (process.argv.includes('--write-template')) {
@@ -86,4 +88,4 @@ if (process.argv.includes('--write-template')) {
 }
 const empty = Object.values(allow).flat().filter(a => !a.why).length;
 if (empty) console.log(`\n理由（why）が空の登録が ${empty} 件ある`);
-process.exit(fresh.length || stale.length || empty ? 1 : 0);
+process.exit(fresh.length || empty ? 1 : 0);

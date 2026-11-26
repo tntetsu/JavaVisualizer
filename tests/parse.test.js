@@ -86,3 +86,53 @@ test('record は「まだ対応していません」（interface・enum は Phas
   assert.equal(syntaxError('interface A {}'), null);
   assert.equal(syntaxError('enum C { R }'), null);
 });
+
+// ── 式の木の形（優先順位・結合の向き）。@lezer/cpp では *p = *q が *(p = *q) と読まれる誤りがあった（CppVisualizer）。
+// ここでは紛らわしい形を、期待する読み方（かっこを付けた形）と比べる。大量の式の比較は tests/precedence.test.js
+const paren = (n) => {
+  switch (n.type) {
+    case 'Identifier': return n.name;
+    case 'Literal': return n.raw;
+    case 'BinaryExpression': case 'LogicalExpression': case 'AssignmentExpression': return `(${paren(n.left)} ${n.operator} ${paren(n.right)})`;
+    case 'ConditionalExpression': return `(${paren(n.test)} ? ${paren(n.consequent)} : ${paren(n.alternate)})`;
+    case 'UnaryExpression': return `(${n.operator}${paren(n.argument)})`;
+    case 'UpdateExpression': return n.prefix ? `(${n.operator}${paren(n.argument)})` : `(${paren(n.argument)}${n.operator})`;
+    case 'CastExpression': return `((${n.targetType}) ${paren(n.argument)})`;
+    case 'InstanceofExpression': return `(${paren(n.expression)} instanceof ${n.targetType})`;
+    case 'MemberExpression': return n.computed ? `${paren(n.object)}[${paren(n.property)}]` : `${paren(n.object)}.${n.property.name}`;
+    case 'CallExpression': return `${paren(n.callee)}(${n.arguments.map(paren).join(', ')})`;
+    case 'LambdaExpression': return `(${n.params.map(p => p.name).join(',')} -> ${paren(n.body)})`;
+  }
+  return `<${n.type}>`;
+};
+const TREES = [
+  ['b = a[0] > 1 ? 2 : 3', '(b = ((a[0] > 1) ? 2 : 3))'],
+  ['a ? b : c ? d : e', '(a ? b : (c ? d : e))'],
+  ['a = b = c', '(a = (b = c))'],
+  ['a += b -= c', '(a += (b -= c))'],
+  ['c ? a = 1 : b', '(c ? (a = 1) : b)'],
+  ['a = b ? c : d', '(a = (b ? c : d))'],
+  ['-a++', '(-(a++))'],
+  ['-a * b', '((-a) * b)'],
+  ['!a == b', '((!a) == b)'],
+  ['(int) a + b', '(((int) a) + b)'],
+  ['(int) -a', '((int) (-a))'],
+  ['a - b - c', '((a - b) - c)'],
+  ['a << b + c', '(a << (b + c))'],
+  ['a & b == c', '(a & (b == c))'],
+  ['a ^ b | c & d', '((a ^ b) | (c & d))'],
+  ['a || b && c', '(a || (b && c))'],
+  ['a < b == c < d', '((a < b) == (c < d))'],
+  ['o instanceof String && b', '((o instanceof String) && b)'],
+  ['++a * b--', '((++a) * (b--))'],
+  ['a[i] = b[j] + 1', '(a[i] = (b[j] + 1))'],
+  ['s -> s.length() > 3 ? 1 : 0', '(s -> ((s.length() > 3) ? 1 : 0))'],
+  ['f(a = b, c)', 'f((a = b), c)'],
+];
+for (const [src, want] of TREES) {
+  test(`式の木：${src} は ${want} と読む`, () => {
+    const ast = parse(`public class Main { static void f() { x = ${src}; } }`);
+    const e = ast.body[0].body.body[0].value.body.body[0].expression;
+    assert.equal(paren(e.right), want);
+  });
+}

@@ -408,6 +408,8 @@ class Locals {
  */
 export function check(ast, classes) {
   assignableType = (from, to) => assignable(from, to, classes);
+  /** final のローカル変数の名前（メソッドごとに作り直す） */
+  let finals = new Set();
   const imported = importedUtil(ast.imports);
   const needImport = (name, loc) => {
     if (JAVA_UTIL.has(name) && !classes.has(name) && !imported.has(name)) {
@@ -426,6 +428,7 @@ export function check(ast, classes) {
       m.params.forEach((p, i) => locals.vars.set(p, m.paramTypes[i]));
       // handled：いま捕まえられる例外の型（外側の try の catch と、メソッドの throws）。内側の try で積む
       const ctx = { cls, isStatic: m.static, method: m, handled: [...(m.throws ?? [])] };
+      finals = new Set();
       stmt(m.body, locals, ctx);
       checkFlow(m.body, m.params);
       if (m.returnType && m.returnType !== 'void' && canComplete(m.body)) {
@@ -442,6 +445,27 @@ export function check(ast, classes) {
     if (base === 'Scanner') { needImport(base, loc); return; }
     if (classes.has(base) || BUILTIN_CLASSES.has(base) || ['Integer', 'Long', 'Double', 'Character', 'Boolean'].includes(base)) return;
     throw err(`型 ${base} が見つかりません（クラス名のつづりを確かめてください）`, loc, 'cannot find symbol');
+  }
+
+  /** final の変数への代入をコンパイルエラーにする（ローカル変数と、初期化子のある final のフィールド） */
+  function requireAssignable(target, locals, ctx) {
+    if (target.type !== 'Identifier' && !(target.type === 'MemberExpression' && !target.computed)) return;
+    const name = target.type === 'Identifier' ? target.name : target.property.name;
+    if (target.type === 'Identifier' && locals.get(name) !== undefined) {
+      if (finals.has(name)) throw err(`final の変数 ${name} には、値を入れ直せません`, target.loc, `cannot assign a value to final variable ${name}`);
+      return;
+    }
+    let cls = ctx.cls;
+    if (target.type === 'MemberExpression') {
+      const ot = target.object.type === 'ThisExpression' ? ctx.cls.name : target.object.type === 'Identifier' && classes.has(target.object.name) ? target.object.name : null;
+      cls = ot && classes.get(ot);
+      if (!cls) return;
+    }
+    const f = cls.fields.find(x => x.name === name) ?? findStaticField(cls, name)?.field;
+    if (f && f.final && f.init) {
+      throw err(`final の${f.static ? ' static ' : ''}フィールド ${name} には、値を入れ直せません（定数です）`, target.loc,
+        `cannot assign a value to ${f.static ? 'static final' : 'final'} variable ${name}`);
+    }
   }
 
   /** 検査例外 t が、catch か throws で扱われているか。扱われていなければコンパイルエラー */
@@ -479,6 +503,7 @@ export function check(ast, classes) {
             else if (!assignable(vt, t, classes, d.init)) throw incompatible(vt, t, d.init.loc);
           }
           locals.vars.set(d.id.name, t);
+          if (s.kind === 'const') finals.add(d.id.name);
         }
         return;
       case 'ExpressionStatement': expr(s.expression, locals, ctx); return;
@@ -649,11 +674,13 @@ export function check(ast, classes) {
       }
       case 'UpdateExpression': {
         const t = expr(n.argument, locals, ctx);
+        requireAssignable(n.argument, locals, ctx);
         if (t !== null && !isNumericType(t)) throw err(`「${n.operator}」は数の変数に使います`, n.loc, `bad operand type ${t} for unary operator '${n.operator}'`);
         return t;
       }
       case 'AssignmentExpression': {
         const lt = expr(n.left, locals, ctx);
+        requireAssignable(n.left, locals, ctx);
         const rt = expr(n.right, locals, ctx);
         if (n.operator === '=' && !assignable(rt, lt, classes, n.right)) throw incompatible(rt, lt, n.right.loc);
         return lt;

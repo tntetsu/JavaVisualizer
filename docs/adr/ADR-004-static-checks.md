@@ -44,7 +44,7 @@ int x = 3.5;
 
 見送るもの（必要になったら足す）：
 
-- ジェネリクスの型検査、`final` への再代入、`catch` した検査例外が `try` の中で投げられない（`exception … is never thrown`）
+- ジェネリクスの型検査、`catch` した検査例外が `try` の中で投げられない（`exception … is never thrown`）、初期化子のない `final` のフィールドの扱い
 
 ## Phase 2 の追記（2026-11-26）
 
@@ -52,6 +52,7 @@ int x = 3.5;
 - **オーバーロード**：引数の宣言の型からいちばん特定的なメソッドを選び、呼び出しの式に印を付ける（評価器はそのメソッドを呼ぶ。ADR-002 追記）
 - **確実な代入**（JLS 16 章の簡略版）：初期化子なしで宣言したローカル変数（`int y;`）を、どの道筋でも値を入れる前に使っていればコンパイルエラーにする。`if` の片方だけで代入した・ループの中だけで代入した変数を、そのあとで使う形（`variable y might not have been initialized`）。`if`/`else` のすべての枝、`switch` の `default` を含むすべての `case`、`while (true)` と `break`、`try` と `catch` の両方、`&&` の右側での代入などは、誤ってエラーにしない（`tests/cases/definite_assignment_ok.java`）。わからない所はゆるめ（入っているもの）に扱う
 - **到達できない文**：`return`・`break`・`continue`・`throw` のあとの文（`unreachable statement`）
+- **`final` への再代入**：`final` のローカル変数と、初期化子のある `final` のフィールド（定数 `static final int LIMIT = 3;`）に値を入れ直す・`++` すると、コンパイルエラー（`cannot assign a value to final variable x`・`… static final variable LIMIT`）
 - **`import`**：`Scanner`・`Arrays` は `import` が要る（ADR-005）。`java.util.Arrays.toString(…)` のように完全な名前で書けば要らない
 
 ## 理由

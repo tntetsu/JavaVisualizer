@@ -12,7 +12,7 @@
  * 見送るもの（ADR-004）：ジェネリクス、オーバーロードの細かな解決、到達できない文、変数の確実な初期化（実行時に検出）。
  */
 import { JavaCompileError, isPrimitiveType, isArrayType, elemTypeOf, BOXES, unboxType, boxType, baseType, typeArgs } from './values.js';
-import { BUILTIN_CLASSES, findMethods, instanceFields, findStaticField } from './objects.js';
+import { BUILTIN_CLASSES, findMethods, instanceFields, findStaticField, isSubtypeName, lookupOrder } from './objects.js';
 
 const err = (ja, loc, javac) => new JavaCompileError(ja, loc, javac);
 
@@ -78,9 +78,9 @@ function assignable(from, to, classes, node) {
     const fa = typeArgs(from), ta = typeArgs(to);
     return fa.length === 0 || ta.length === 0 || fa.join(',') === ta.join(',');
   }
-  // クラスの継承
-  for (let k = classes.get(from) ?? BUILTIN_CLASSES.get(from); k; k = k.superClass) if (k.name === to) return true;
-  return false;
+  // クラスの継承・インターフェースの実装（Comparable<Student> は Comparable として見る）
+  const fc = classes.get(baseType(from)) ?? BUILTIN_CLASSES.get(baseType(from));
+  return !!fc && isSubtypeName(fc, baseType(to));
 }
 
 function incompatible(from, to, loc) {
@@ -149,6 +149,9 @@ const WRAPPER_METHODS = {
   booleanValue: 'boolean', toString: 'String', hashCode: 'int',
 };
 
+/** enum の定数のメソッドの戻り値の型（ADR-008） */
+const ENUM_METHODS = { name: 'String', ordinal: 'int', compareTo: 'int', equals: 'boolean', toString: 'String', hashCode: 'int' };
+
 /** Scanner のメソッドの戻り値の型（ADR-005） */
 const SCANNER_METHODS = {
   nextInt: 'int', nextLong: 'long', nextDouble: 'double', nextBoolean: 'boolean', next: 'String', nextLine: 'String',
@@ -202,7 +205,7 @@ function hasJump(n, type, top = true) {
 function canComplete(s) {
   if (!s) return true;
   switch (s.type) {
-    case 'ReturnStatement': case 'ThrowStatement': case 'BreakStatement': case 'ContinueStatement': return false;
+    case 'ReturnStatement': case 'ThrowStatement': case 'BreakStatement': case 'ContinueStatement': case 'YieldStatement': return false;
     case 'BlockStatement': return s.body.every(canComplete);
     case 'IfStatement': return !s.alternate || canComplete(s.consequent) || canComplete(s.alternate);
     case 'WhileStatement': return !isTrueLiteral(s.test) || hasBreak(s.body);
@@ -300,6 +303,12 @@ function checkFlow(body, params) {
       case 'CastExpression': return expr(e.argument, da);
       case 'InstanceofExpression': return expr(e.expression, da);
       case 'SequenceExpression': return e.expressions.reduce((d, a) => expr(a, d), da);
+      case 'SwitchExpression': {
+        // switch 式：各 case の中も調べる（そこで入る変数は数えない＝ゆるめではなく、きびしめにはしない）
+        const d = expr(e.discriminant, da);
+        for (const c of e.cases) block(c.consequent, d);
+        return d;
+      }
     }
     return da;
   }
@@ -382,7 +391,7 @@ function checkFlow(body, params) {
         }
         return out;
       }
-      case 'ReturnStatement': case 'ThrowStatement': expr(s.argument, da); return ALL;
+      case 'ReturnStatement': case 'ThrowStatement': case 'YieldStatement': expr(s.argument, da); return ALL;
       case 'BreakStatement': case 'ContinueStatement': return ALL;
     }
     return da;
@@ -440,6 +449,27 @@ class Locals {
  */
 export function check(ast, classes) {
   assignableType = (from, to) => assignable(from, to, classes);
+  /**
+   * 抽象クラスでないクラス・enum が、上のクラス・インターフェースの抽象メソッドをすべて実装しているか（ADR-008）。
+   * Comparable<T> の compareTo は、引数 1 つの compareTo があればよい
+   */
+  function checkOverrides(cls) {
+    if (cls.abstract || cls.kind === 'interface') return;
+    const concrete = (name, params) => lookupOrder(cls).some(k => (k.methods.get(name) ?? []).some(m => m.body && !m.static
+      && (params === null ? m.paramTypes.length === 1 : m.paramTypes.join(',') === params)));
+    for (const k of lookupOrder(cls)) {
+      if (k.builtin && k.name === 'Comparable' && !concrete('compareTo', null)) {
+        throw err(`クラス ${cls.name} は Comparable を実装すると書いていますが、compareTo メソッドがありません`, cls.node.loc,
+          `${cls.name} is not abstract and does not override abstract method compareTo(${cls.name}) in Comparable`);
+      }
+      for (const m of [...k.methods.values()].flat()) {
+        if (m.body || m.static || concrete(m.name, m.paramTypes.join(','))) continue;
+        throw err(`クラス ${cls.name} は、${k.kind === 'interface' ? 'インターフェース' : 'クラス'} ${k.name} の抽象メソッド ${m.name}(${m.paramTypes.join(', ')}) を実装していません（abstract のクラスにするか、メソッドを書きます）`,
+          cls.node.loc, `${cls.name} is not abstract and does not override abstract method ${m.name}(${m.paramTypes.join(',')}) in ${k.name}`);
+      }
+    }
+  }
+
   /** new ArrayList<>() の <> を、代入先の型（List<Integer>）から決める（要素の型の印に使う） */
   function inferDiamond(init, target) {
     if (init?.type === 'NewExpression' && init.genericType?.endsWith('<>') && target && typeArgs(target).length) {
@@ -462,7 +492,9 @@ export function check(ast, classes) {
       const t = expr(f.init, new Locals(), { ...fieldCtx, isStatic: f.static });
       if (!assignable(t, f.type, classes, f.init)) throw incompatible(t, f.type, f.init.loc);
     }
+    checkOverrides(cls);
     for (const m of [...cls.ctors, ...[...cls.methods.values()].flat()]) {
+      if (!m.body) continue;   // 抽象メソッド（本体なし）
       const locals = new Locals();
       m.params.forEach((p, i) => locals.vars.set(p, m.paramTypes[i]));
       // handled：いま捕まえられる例外の型（外側の try の catch と、メソッドの throws）。内側の try で積む
@@ -596,6 +628,12 @@ export function check(ast, classes) {
         return;
       }
       case 'ThrowStatement': requireHandled(expr(s.argument, locals, ctx), s.loc, ctx); return;
+      case 'YieldStatement': {
+        const t = expr(s.argument, locals, ctx);
+        if (!ctx.yields) throw err('yield は switch 式の中で使います', s.loc, 'yield outside of switch expression');
+        ctx.yields.push(t);
+        return;
+      }
       case 'TryStatement':
         stmt(s.block, locals, { ...ctx, handled: [...(ctx.handled ?? []), ...s.handlers.flatMap(h => h.types)] });
         for (const h of s.handlers) {
@@ -630,6 +668,33 @@ export function check(ast, classes) {
     if (classes.has(name) || BUILTIN_CLASSES.has(name)) return `class:${name}`;
     if (BUILTIN_NAMES.has(name)) { needImport(name, loc); return `builtin:${name}`; }
     throw err(`「${name}」という変数は宣言されていません（つづりと、宣言した場所（{ } の範囲）を確かめてください）`, loc, 'cannot find symbol');
+  }
+
+  /**
+   * switch 式の型（ADR-008）。各 case の値（-> の右の式・yield）の型をまとめる。
+   * default がなければ、enum のすべての定数を case に書いたときだけ通す（本物と同じ）
+   */
+  function switchExprType(n, locals, ctx) {
+    const dt = expr(n.discriminant, locals, ctx);
+    const enumCls = dt && classes.get(dt)?.kind === 'enum' ? classes.get(dt) : null;
+    if (!n.cases.some(c => c.default)) {
+      const covered = new Set(n.cases.flatMap(c => c.tests.map(t => t.name)));
+      if (!enumCls || !enumCls.fields.filter(f => f.enumConstant).every(f => covered.has(f.name))) {
+        throw err('switch 式には、どの値にも当てはまる default が必要です（enum なら、すべての定数の case を書きます）', n.loc,
+          'the switch expression does not cover all possible input values');
+      }
+    }
+    const yields = [];
+    const inner = { ...ctx, yields };
+    for (const c of n.cases) {
+      const l = new Locals(locals);
+      for (const st of c.consequent) stmt(st, l, inner);
+    }
+    const known = yields.filter(t => t !== null);
+    if (!known.length) return null;
+    if (known.every(t => t === known[0])) return known[0];
+    if (known.every(t => isNumericType(unboxType(t)))) return known.map(unboxType).reduce(promote);
+    return null;
   }
 
   /** ArrayList・List のメソッドの戻り値の型（引数の型も確かめる。ADR-007） */
@@ -703,6 +768,11 @@ export function check(ast, classes) {
     }
     if (ot.startsWith('class:')) {
       const cls = classes.get(ot.slice(6));
+      // enum の values()・valueOf(String)（ADR-008）
+      if (cls?.kind === 'enum' && !findMethods(cls, name).some(m => m.static)) {
+        if (name === 'values') return `${cls.name}[]`;
+        if (name === 'valueOf') return cls.name;
+      }
       return cls ? userCall(cls, name, { staticOnly: true }) : null;
     }
     if (ot === 'PrintStream') return 'void';
@@ -721,8 +791,9 @@ export function check(ast, classes) {
       return WRAPPER_METHODS[name];
     }
     if (isPrimitiveType(ot)) throw err(`${ot} の値にはメソッドがありません（${name}(…) は呼べません）`, c.loc, `${ot} cannot be dereferenced`);
-    const cls = classes.get(ot);
+    const cls = classes.get(baseType(ot));
     if (cls && findMethods(cls, name).length) return userCall(cls, name);
+    if (cls?.kind === 'enum' && ENUM_METHODS[name]) return ENUM_METHODS[name];
     return null;
   }
 
@@ -856,6 +927,10 @@ export function check(ast, classes) {
         }
         if (name === 'StringBuilder' && !classes.has(name)) return 'StringBuilder';
         const cls = classes.get(name);
+        if (cls?.kind === 'enum') throw err(`enum の ${name} は new で作れません（定数を使います）`, n.loc, 'enum classes may not be instantiated');
+        if (cls?.abstract) {
+          throw err(`${cls.kind === 'interface' ? 'インターフェース' : '抽象クラス'} ${name} は new で作れません（実装したクラスを new します）`, n.loc, `${name} is abstract; cannot be instantiated`);
+        }
         if (cls) {
           if (cls.ctors.length === 0 && argTypes.length) {
             throw err(`クラス ${name} のコンストラクタは引数を受け取りません`, n.loc, `constructor ${name} in class ${name} cannot be applied to given types;`);
@@ -900,7 +975,16 @@ export function check(ast, classes) {
         }
         return n.targetType;
       }
-      case 'InstanceofExpression': expr(n.expression, locals, ctx); knownType(n.targetType, n.loc); return 'boolean';
+      case 'InstanceofExpression':
+        expr(n.expression, locals, ctx);
+        knownType(n.targetType, n.loc);
+        // o instanceof String s：s を宣言する（本物は当てはまる所だけで使える。ここでは、そのあとのブロックで使えるとゆるめに扱う）
+        if (n.binding) {
+          if (locals.get(n.binding.name) !== undefined) throw redeclared(n.binding.name, n.binding.loc, ctx);
+          locals.vars.set(n.binding.name, n.targetType);
+        }
+        return 'boolean';
+      case 'SwitchExpression': return switchExprType(n, locals, ctx);
     }
     return null;
   }

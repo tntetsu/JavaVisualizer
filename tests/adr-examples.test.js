@@ -185,3 +185,14 @@ test('ADR-007 例：ArrayList の表示・remove の 2 つの意味・Integer �
   assert.equal(m.label(list), 'ArrayList<Integer>(3)');
   assert.deepEqual(m.brackets(list), ['[', ']']);
 });
+
+test('ADR-008 例：enum の表示・switch 式・インターフェースの new はコンパイルエラー', async () => {
+  const { javaValueModel: m } = await import('../src/lang/java.js');
+  const src = 'public class Main {\n    enum Color { RED, GREEN, BLUE }\n\n    public static void main(String[] args) {\n        Color c = Color.GREEN;\n        System.out.println(c + " " + c.ordinal());\n        String s = switch (c) { case RED -> "赤"; case GREEN -> "緑"; case BLUE -> "青"; };\n        System.out.println(s);\n    }\n}\n';
+  const dbg = new JavaDebugger(src);
+  assert.deepEqual(joinConsoleLines(dbg.consoleLogs).map(l => l.text), ['GREEN 1', '緑']);
+  const c = dbg.trace.filter(e => e.phase === 'exit' && e.nodeType === 'VariableDeclaration').at(-1).frameEnvs.at(-1).c;
+  assert.equal(m.literal(c), 'Color.GREEN');
+  const e = compileError(main('        Shape s = new Shape();', 'interface Shape {\n    double area();\n}\n'));
+  assert.equal(e.javac, 'Shape is abstract; cannot be instantiated');
+});

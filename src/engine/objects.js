@@ -27,17 +27,53 @@ export class JClass {
     this.methods = new Map();       // name → Method[]
     this.ctors = [];                // Method[]
     this.initialized = false;       // static フィールドの初期化が済んだか
+    this.kind = 'class';            // 'class' | 'interface' | 'enum'（ADR-008）
+    this.abstract = false;          // 抽象クラス・インターフェース
+    this.interfaces = [];           // JClass[]（implements・インターフェースの extends）
+    this.outer = null;              // 入れ子の型なら外側の型の名前（Main.Color）
+    this.constants = [];            // enum の定数（JObject。初期化のときに作る）
   }
-  get qualifiedName() { return this.pkg ? `${this.pkg}.${this.name}` : this.name; }
+  /** 例外のメッセージなどに使う名前（java.lang.ArithmeticException・Main.Color） */
+  get qualifiedName() { return this.pkg ? `${this.pkg}.${this.name}` : this.outer ? `${this.outer}.${this.name}` : this.name; }
   toString() { return `class ${this.name}`; }
 }
 
 export const isClass = (v) => v instanceof JClass;
 export const isJObject = (v) => v !== null && typeof v === 'object' && v.__type__ === 'JObject';
 
+/** c が base（クラスかインターフェース）の下にあるか（継承と実装をたどる） */
 export function isSubclassOf(c, base) {
-  for (let k = c; k; k = k.superClass) if (k === base) return true;
+  for (let k = c; k; k = k.superClass) {
+    if (k === base) return true;
+    if (k.interfaces.some(i => isSubclassOf(i, base))) return true;
+  }
   return false;
+}
+
+/** c が名前 name のクラス・インターフェースの下にあるか（instanceof・キャスト・引数の型） */
+export function isSubtypeName(c, name) {
+  for (let k = c; k; k = k.superClass) {
+    if (k.name === name) return true;
+    if (k.interfaces.some(i => isSubtypeName(i, name))) return true;
+  }
+  return false;
+}
+
+/** クラスとその上のクラス・インターフェースを、近い順に並べる（メソッドを探す順） */
+export function lookupOrder(cls) {
+  const out = [];
+  const seen = new Set();
+  const visitIfaces = (k) => {
+    for (const i of k.interfaces) {
+      if (seen.has(i)) continue;
+      seen.add(i);
+      out.push(i);
+      visitIfaces(i);
+    }
+  };
+  for (let k = cls; k; k = k.superClass) { if (!seen.has(k)) { seen.add(k); out.push(k); } }
+  for (let k = cls; k; k = k.superClass) visitIfaces(k);
+  return out;
 }
 
 /** クラスの階層をたどって、インスタンスのフィールドの宣言を集める（上のクラスから順に） */
@@ -49,7 +85,8 @@ export function instanceFields(cls) {
 
 /** static フィールドの宣言を、クラスの階層をたどって探す */
 export function findStaticField(cls, name) {
-  for (let k = cls; k; k = k.superClass) {
+  // クラスの階層と、実装しているインターフェースの定数（ADR-008）
+  for (const k of lookupOrder(cls)) {
     const f = k.fields.find(x => x.static && x.name === name);
     if (f) return { cls: k, field: f };
   }
@@ -64,7 +101,8 @@ export function hasInstanceField(cls, name) {
 export function findMethods(cls, name) {
   const out = [];
   const seen = new Set();
-  for (let k = cls; k; k = k.superClass) {
+  // クラスの階層を先に、インターフェース（default メソッド・抽象メソッド）をあとに探す
+  for (const k of lookupOrder(cls)) {
     for (const m of k.methods.get(name) ?? []) {
       const sig = m.paramTypes.join(',');
       if (seen.has(sig)) continue;   // 下のクラスのオーバーライドを優先
@@ -93,6 +131,11 @@ const IndexOutOfBoundsException = lang('IndexOutOfBoundsException', RuntimeExcep
 
 const NoSuchElementException = new JClass('NoSuchElementException', RuntimeException, { builtin: true, pkg: 'java.util' });
 
+/** 組み込みのインターフェース Comparable（自作のクラスが implements Comparable<T> で使う。ADR-008） */
+const Comparable = new JClass('Comparable', null, { builtin: true, pkg: 'java.lang' });
+Comparable.kind = 'interface';
+Comparable.abstract = true;
+
 /** 組み込みのクラス（例外など）。名前 → JClass */
 export const BUILTIN_CLASSES = new Map([
   ObjectClass, Throwable, Exception, ErrorCls, RuntimeException, IllegalArgumentException, IndexOutOfBoundsException,
@@ -107,6 +150,7 @@ export const BUILTIN_CLASSES = new Map([
   lang('NumberFormatException', IllegalArgumentException),
   lang('StackOverflowError', ErrorCls),
   NoSuchElementException,
+  Comparable,
   new JClass('InputMismatchException', NoSuchElementException, { builtin: true, pkg: 'java.util' }),
 ].map(c => [c.name, c]));
 
@@ -156,3 +200,6 @@ export function toJavaException(err) {
   }
   return null;
 }
+
+/** enum の定数か（ADR-008） */
+export const isEnumConstant = (v) => isJObject(v) && v.__enum !== undefined;

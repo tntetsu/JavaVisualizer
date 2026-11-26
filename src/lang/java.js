@@ -38,6 +38,7 @@ export const javaValueModel = {
     }
     if (v instanceof JDouble) return 'number';
     if (v instanceof JChar || v instanceof JString) return 'string';
+    if (isObject(v) && v.__enum) return 'string';   // enum の定数は Color.GREEN と 1 語で書く（ADR-008）
     if (v.__type__ === 'JSFunction') return 'function';   // 呼び出し先のメソッド（ADR-003 追記）
     if (isClass(v) || isBuiltin(v)) return 'other';
     if (isArray(v) || isList(v)) return 'sequence';   // ArrayList も配列のビューで見せる（ADR-007）
@@ -47,6 +48,7 @@ export const javaValueModel = {
   numberValue: (v) => num(v),
   literal(v) {
     if (v === undefined) return 'void';
+    if (isObject(v) && v.__enum) return `${v.cls.name}.${v.__enum.name}`;
     if (isClass(v) || isBuiltin(v)) return v.name;
     return literalOf(v);
   },

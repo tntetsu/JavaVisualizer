@@ -18,7 +18,7 @@ import {
   coerce, defaultValue, isPrimitiveType, isArrayType, elemTypeOf, javaStr, typeName,
 } from './values.js';
 import {
-  JClass, ObjectClass, BUILTIN_CLASSES, isClass, isJObject, isSubclassOf, instanceFields, findStaticField,
+  JClass, ObjectClass, BUILTIN_CLASSES, isClass, isJObject, isSubclassOf, isSubtypeName, isEnumConstant, instanceFields, findStaticField,
   hasInstanceField, findMethods, makeObject, makeThrowable, isThrowable, throwableString, JThrow, toJavaException,
 } from './objects.js';
 import { createBuiltins, isBuiltin, callStringMethod, createScanner } from './builtins.js';
@@ -44,7 +44,43 @@ export class JScope extends Scope {
   }
 }
 
-const isSignal = (r) => r instanceof ReturnSignal || r instanceof BreakSignal || r instanceof ContinueSignal;
+/** switch 式の yield（値を持って switch 式を抜ける） */
+class YieldSignal {
+  constructor(value) { this.value = value; }
+}
+
+const isSignal = (r) => r instanceof ReturnSignal || r instanceof BreakSignal || r instanceof ContinueSignal || r instanceof YieldSignal;
+
+/**
+ * switch（文・式）を実行する。当てはまった case から（-> の形はその case だけ）文を実行し、
+ * break・yield・return などのシグナルを返す（なければ undefined）
+ */
+function runSwitch(node, env, rt, d, callDepth) {
+  const ev = (n, e = env) => evaluate(n, e, rt, d, callDepth);
+  const v = ev(node.discriminant);
+  if (v === null) throw npeAt(node.discriminant.loc, 'Cannot invoke "String.hashCode()"', node.discriminant, env, rt);
+  // case の値は定数なので、記録せずに評価する。enum の case は定数の名前（case RED:）で比べる
+  const same = (t) => {
+    if (isEnumConstant(v)) return t.type === 'Identifier' && t.name === v.__enum.name;
+    const c = _eval(t, env, rt, d, callDepth);
+    return isString(v) ? isString(c) && c.s === v.s : num(c) === num(v);
+  };
+  let idx = node.cases.findIndex(c => c.tests.some(same));
+  if (idx < 0) idx = node.cases.findIndex(c => c.default);
+  if (idx < 0) return undefined;
+  const senv = new JScope(env, 'block');
+  // 当てはまった case を CaseMatch として記録する（「人」のステップが止まる。ADR-003）
+  const c0 = node.cases[idx];
+  rt.recorder.record({ type: 'CaseMatch', loc: c0.head.loc, end: c0.head.end }, senv, d, callDepth, () => v);
+  const last = node.arrow ? idx + 1 : node.cases.length;
+  for (let i = idx; i < last; i++) {
+    for (const st of node.cases[i].consequent) {
+      const r = ev(st, senv);
+      if (isSignal(r)) return r;
+    }
+  }
+  return undefined;
+}
 
 const compileError = (msg, loc, javac) => new JavaCompileError(msg, loc, javac);
 const npe = (loc, msg = null) => new JavaError('NullPointerException', msg, loc);
@@ -154,15 +190,29 @@ export function buildClasses(ast) {
   for (const decl of ast.body) {
     const name = decl.id.name;
     if (classes.has(name)) throw compileError(`クラス ${name} が 2 回宣言されています`, decl.loc, `duplicate class: ${name}`);
-    classes.set(name, new JClass(name, null, { node: decl }));
+    const cls = new JClass(name, null, { node: decl });
+    cls.kind = decl.kind ?? 'class';
+    cls.abstract = !!decl.abstract;
+    cls.outer = decl.outer ?? null;
+    classes.set(name, cls);
   }
   for (const cls of classes.values()) {
     const decl = cls.node;
     if (decl.superClass) {
-      const sup = classes.get(decl.superClass.name) ?? BUILTIN_CLASSES.get(decl.superClass.name);
+      const sup = classes.get(baseType(decl.superClass.name)) ?? BUILTIN_CLASSES.get(baseType(decl.superClass.name));
       if (!sup) throw compileError(`クラス ${decl.superClass.name} が見つかりません`, decl.superClass.loc, 'cannot find symbol');
       cls.superClass = sup;
-    } else cls.superClass = ObjectClass;
+    } else cls.superClass = cls.kind === 'interface' ? null : ObjectClass;
+    // implements・インターフェースの extends（Comparable は組み込みのインターフェース。ADR-008）
+    cls.interfaces = (decl.interfaces ?? []).map(t => {
+      const i = classes.get(baseType(t)) ?? BUILTIN_CLASSES.get(baseType(t));
+      if (!i) throw compileError(`インターフェース ${baseType(t)} が見つかりません`, decl.loc, 'cannot find symbol');
+      return i;
+    });
+    // enum の定数は、その enum の型の static final フィールド（初期化は ensureInit が定数を作って行う）
+    (decl.constants ?? []).forEach((c, ordinal) => {
+      cls.fields.push({ name: c.name, type: cls.name, static: true, final: true, init: null, enumConstant: { ...c, ordinal } });
+    });
     for (const m of decl.body.body) {
       if (m.type === 'FieldDeclaration') {
         for (const d of m.declarations) {
@@ -176,9 +226,10 @@ export function buildClasses(ast) {
           paramTypes: m.value.params.map(p => p.varType),
           returnType: m.returnType,
           throws: m.throws ?? [],
+          abstract: !!m.abstract,
           body: m.value.body, node: m,
         };
-        Object.defineProperty(m.value.body, 'methodBody', { value: true, enumerable: false });
+        if (m.value.body) Object.defineProperty(m.value.body, 'methodBody', { value: true, enumerable: false });
         if (m.kind === 'constructor') cls.ctors.push(method);
         else {
           if (!cls.methods.has(method.name)) cls.methods.set(method.name, []);
@@ -227,6 +278,7 @@ export function createRuntime(recorder, classes, { stdin = '' } = {}) {
     write: (text) => recorder.write(text),
     intern: rt.intern,
     equals: (a, b) => javaEquals(a, b, rt),
+    compareTo: (a, b) => javaCompareTo(a, b, rt),
     hashCode: (v) => javaHashCode(v, rt),
   };
   for (const [k, v] of createCollectionBuiltins()) rt.builtins.set(k, v);
@@ -252,7 +304,8 @@ export function stringOf(v, rt) {
         return r === null ? 'null' : r.s;
       }
       if (isThrowable(o)) return throwableString(o);
-      return `${o.cls.name}@${identityHash(o, rt).toString(16)}`;
+      if (isEnumConstant(o)) return o.__enum.name;
+      return `${o.cls.qualifiedName.replace(/\.(?=[^.]*$)/, o.cls.outer ? '$' : '.')}@${identityHash(o, rt).toString(16)}`;
     }
     if (isArray(o)) return `${arrayDescriptor(o.__jelem)}@${identityHash(o, rt).toString(16)}`;
     if (isClass(o)) return `class ${o.name}`;
@@ -275,6 +328,17 @@ export function javaEquals(a, b, rt) {
   }
   if (isStringBuilder(a)) return a === b;
   return callWrapperMethod(a, 'equals', [b], rt.bctx);
+}
+
+/** 自作のクラス（Comparable）・enum の compareTo（Collections.sort などの自然な順序。ADR-008） */
+export function javaCompareTo(a, b, rt) {
+  const m = findMethods(a.cls, 'compareTo').find(x => !x.static && x.paramTypes.length === 1 && x.body);
+  if (m) {
+    const { depth, callDepth, loc } = currentDepths(rt);
+    return callMethod(m, a, [b], rt, depth, callDepth, loc);
+  }
+  if (isEnumConstant(a) && isEnumConstant(b)) return a.__enum.ordinal - b.__enum.ordinal;
+  throw new JavaError('ClassCastException', `class ${a.cls.name} cannot be cast to class java.lang.Comparable`);
 }
 
 /** Java の hashCode（String・ラッパー型は本物と同じ値。オブジェクトはユーザーの hashCode() があれば呼ぶ） */
@@ -457,6 +521,20 @@ export function ensureInit(cls, rt) {
   }
   const env = new JScope(rt.global, 'block', { cls, thisObj: null, method: null });
   const { depth, callDepth } = currentDepths(rt);
+  // enum の定数を、書いた順に作る（コンストラクタの引数があれば呼ぶ）。定数ごとにフィールドの初期化として記録する（ADR-008）
+  for (const f of statics.filter(x => x.enumConstant)) {
+    const c = f.enumConstant;
+    rt.recorder.record({ type: 'FieldDeclaration', loc: c.loc, end: null }, env, depth, callDepth, () => {
+      const obj = makeObject(cls);
+      Object.defineProperty(obj, '__enum', { value: { name: c.name, ordinal: c.ordinal }, enumerable: false });
+      for (const fi of instanceFields(cls)) obj.fields[fi.name] = defaultValue(fi.type);
+      const args = c.arguments.map(a => evaluate(a, env, rt, depth + 1, callDepth));
+      construct(cls, obj, args, rt, depth + 1, callDepth, c.loc);
+      cls.constants.push(obj);
+      rt.global.bindings.set(staticKey(cls, f.name), obj);
+      return obj;
+    });
+  }
   runFieldInits(cls, true, null, env, rt, depth, callDepth);
 }
 
@@ -526,7 +604,8 @@ function argDistance(v, t) {
   if (/^(ArrayList|List)$/.test(baseType(t))) return isList(v) ? 0 : -1;
   if (isJObject(v)) {
     let dist = 0;
-    for (let k = v.cls; k; k = k.superClass, dist++) if (k.name === t) return dist;
+    for (let k = v.cls; k; k = k.superClass, dist++) if (k.name === baseType(t)) return dist;
+    if (isSubtypeName(v.cls, baseType(t))) return 3;   // インターフェース
   }
   return -1;
 }
@@ -558,7 +637,7 @@ function chooseMethod(cands, args, loc, name, signature) {
 /** インスタンスのメソッドを、オブジェクトの実際のクラスから探し直す（オーバーライド） */
 function dispatch(obj, m) {
   for (let k = obj.cls; k && k !== m.cls; k = k.superClass) {
-    const o = (k.methods.get(m.name) ?? []).find(x => !x.static && x.paramTypes.join(',') === m.paramTypes.join(','));
+    const o = (k.methods.get(m.name) ?? []).find(x => !x.static && x.body && x.paramTypes.join(',') === m.paramTypes.join(','));
     if (o) return o;
   }
   return m;
@@ -734,7 +813,7 @@ function instanceOf(v, t) {
   if (BOXES[t]) return argDistance(v, BOXES[t]) === 0;
   if (t === 'String') return isString(v);
   if (isArrayType(t)) return isArray(v);
-  if (isJObject(v)) for (let k = v.cls; k; k = k.superClass) if (k.name === t) return true;
+  if (isJObject(v)) return isSubtypeName(v.cls, t);
   return false;
 }
 
@@ -938,27 +1017,16 @@ function _eval(node, env, rt, depth, callDepth) {
     }
 
     case 'SwitchStatement': {
-      const v = ev(node.discriminant);
-      if (v === null) throw npeAt(node.discriminant.loc, 'Cannot invoke "String.hashCode()"', node.discriminant, env, rt);
-      const same = (c) => (isString(v) ? isString(c) && c.s === v.s : num(c) === num(v));
-      // case の値は定数なので、記録せずに評価する
-      let idx = node.cases.findIndex(c => c.tests.some(t => same(_eval(t, env, rt, d, callDepth))));
-      if (idx < 0) idx = node.cases.findIndex(c => c.default);
-      if (idx < 0) return undefined;
-      const senv = new JScope(env, 'block');
-      // 当てはまった case を CaseMatch として記録する（「人」のステップが止まる。ADR-003）
-      const c0 = node.cases[idx];
-      rt.recorder.record({ type: 'CaseMatch', loc: c0.head.loc, end: c0.head.end }, senv, d, callDepth, () => v);
-      const last = node.arrow ? idx + 1 : node.cases.length;
-      for (let i = idx; i < last; i++) {
-        for (const s of node.cases[i].consequent) {
-          const r = ev(s, senv);
-          if (r instanceof BreakSignal) return undefined;
-          if (isSignal(r)) return r;
-        }
-      }
-      return undefined;
+      const r = runSwitch(node, env, rt, d, callDepth);
+      return r instanceof BreakSignal || r instanceof YieldSignal ? undefined : r;
     }
+    case 'SwitchExpression': {
+      // switch 式：当てはまった case の値（-> の右の式、または yield の値。ADR-008）
+      const r = runSwitch(node, env, rt, d, callDepth);
+      if (r instanceof YieldSignal) return r.value;
+      throw compileError('switch 式が値を出さずに終わりました（yield が必要です）', node.loc, 'switch expression completes without providing a value');
+    }
+    case 'YieldStatement': return new YieldSignal(ev(node.argument));
 
     case 'BreakStatement': return new BreakSignal();
     case 'ContinueStatement': return new ContinueSignal();
@@ -1157,7 +1225,13 @@ function _eval(node, env, rt, depth, callDepth) {
       }
       return v;
     }
-    case 'InstanceofExpression': return instanceOf(ev(node.expression), node.targetType);
+    case 'InstanceofExpression': {
+      const v = ev(node.expression);
+      const ok = instanceOf(v, node.targetType);
+      // o instanceof String s：当てはまれば s に入れる（今のブロックの変数にする。ADR-008）
+      if (ok && node.binding) declare(env, node.binding.name, node.targetType, v);
+      return ok;
+    }
   }
   throw compileError(`${node.type} はまだ対応していません`, node.loc, `${node.type} is not supported yet`);
 }
@@ -1229,6 +1303,16 @@ function evalCall(node, env, rt, d, callDepth) {
   }
   if (isClass(obj)) {
     ensureInit(obj, rt);
+    // enum の values()・valueOf(String)（ADR-008）
+    if (obj.kind === 'enum' && !findMethods(obj, name).some(x => x.static)) {
+      if (name === 'values') return makeArray(obj.name, obj.constants);
+      if (name === 'valueOf') {
+        const c = isString(args[0]) && obj.constants.find(k => k.__enum.name === args[0].s);
+        if (args[0] === null) throw new JavaError('NullPointerException', 'Name is null', node.loc);
+        if (!c) throw new JavaError('IllegalArgumentException', `No enum constant ${obj.qualifiedName}.${args[0].s}`, node.loc);
+        return c;
+      }
+    }
     const m = chooseMethod(findMethods(obj, name).filter(x => x.static), args, node.loc, name, node.signature);
     return callMethod(m, null, args, rt, d, callDepth, node.loc);
   }
@@ -1254,8 +1338,17 @@ function evalCall(node, env, rt, d, callDepth) {
     return objectMethod(obj, name, args, rt, node.loc);
   }
   if (isJObject(obj)) {
-    const cands = findMethods(obj.cls, name).filter(x => !x.static);
+    const cands = findMethods(obj.cls, name).filter(x => !x.static && x.body);
     if (cands.length) return callMethod(dispatch(obj, chooseMethod(cands, args, node.loc, name, node.signature)), obj, args, rt, d, callDepth, node.loc);
+    // enum の定数のメソッド（ADR-008）
+    if (isEnumConstant(obj)) {
+      switch (name) {
+        case 'name': return rt.intern(obj.__enum.name);
+        case 'ordinal': return obj.__enum.ordinal;
+        case 'compareTo': return obj.__enum.ordinal - args[0].__enum.ordinal;
+      }
+    }
+    if (name === 'compareTo' && isSubtypeName(obj.cls, 'Comparable')) return javaCompareTo(obj, args[0], rt);
     return objectMethod(obj, name, args, rt, node.loc);
   }
   if (isArray(obj) && name === 'clone') return makeArray(obj.__jelem, obj);

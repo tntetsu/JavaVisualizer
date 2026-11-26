@@ -57,6 +57,8 @@ const WHAT_EN = {
   'メソッド参照（::）': 'method references (::)',
   'クラスリテラル（.class）': 'class literals (.class)',
   'ワイルドカード（?）の型引数': 'wildcard type arguments (?)',
+  '本体のある enum の定数': 'enum constants with a body',
+  '本体のないメソッド': 'methods without a body',
 };
 
 /** 「まだ対応していません」の構文の名前を英語にする（表にない名前は、「型「…」」などの形を読む） */

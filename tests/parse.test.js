@@ -68,7 +68,6 @@ for (const [body, line, text] of SYNTAX) {
 
 const UNSUPPORTED = [
   ['        Runnable r = () -> {};', 'ラムダ式'],
-  ['        int k = switch (1) { default -> 0; };', 'switch 式'],
   ['        float f = 1;', null],   // float は検査（check.js）で「まだ対応していません」
 ];
 
@@ -80,9 +79,9 @@ for (const [body, what] of UNSUPPORTED.filter(([, w]) => w)) {
   });
 }
 
-test('interface・enum・record は「まだ対応していません」', () => {
-  for (const [src, what] of [['interface A {}', 'インターフェース'], ['enum C { R }', '列挙型（enum）'], ['record P(int x) {}', 'レコード（record）']]) {
-    const e = syntaxError(src);
-    assert.match(e.message, new RegExp(`${what.replace(/[()]/g, '\\$&')} はまだ対応していません`));
-  }
+test('record は「まだ対応していません」（interface・enum は Phase 5 で対応した。ADR-008）', () => {
+  const e = syntaxError('record P(int x) {}');
+  assert.match(e.message, /レコード（record） はまだ対応していません/);
+  assert.equal(syntaxError('interface A {}'), null);
+  assert.equal(syntaxError('enum C { R }'), null);
 });

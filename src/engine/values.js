@@ -143,6 +143,14 @@ export function makeList(items, { kind = 'ArrayList', elemType = null } = {}) {
 
 /** スナップショットのクローン（配列の要素の型・リストの印を保つ。共通コアの createCloner に渡す） */
 export function javaCloneHook(v, clone, seen) {
+  // enum の定数は、名前と序数の印（列挙されない __enum）を保って複製する（ADR-008）
+  if (v && v.__type__ === 'JObject' && v.__enum !== undefined) {
+    const c = { __type__: 'JObject', cls: v.cls, fields: {} };
+    seen.set(v, c);
+    Object.defineProperty(c, '__enum', { value: v.__enum, enumerable: false });
+    for (const k of Object.keys(v.fields)) c.fields[k] = clone(v.fields[k]);
+    return c;
+  }
   if (!Array.isArray(v) || (v.__jelem === undefined && v.__jlist === undefined)) return undefined;
   const c = [];
   seen.set(v, c);

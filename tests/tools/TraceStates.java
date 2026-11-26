@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
  *
  * 値の書き方（tests/line-state.test.js の srepr と同じ）：int・long は 10 進、double は Double.toString、
  * char は 'a'、String は "abc"、null、配列は [1, 2]、オブジェクトは ClassName{a=1, b=2}（フィールドは名前の順、
- * 深さ 3 まで）、例外は <ArithmeticException>、JDK のクラスのオブジェクト（Scanner など）は <Scanner>。
+ * 深さ 3 まで）、例外は <ArithmeticException>、enum の定数は Color.GREEN、JDK のクラスのオブジェクト（Scanner など）は <Scanner>。
  * 出力：{ "changes": [...], "error": null または例外のクラス名, "output": 標準出力 }
  */
 public class TraceStates {
@@ -121,8 +121,11 @@ public class TraceStates {
         try {
             StackFrame f = t.frame(0);
             String method = f.location().method().name();
-            if (method.equals("<init>")) method = f.location().declaringType().name();
+            // 入れ子のクラスのコンストラクタは Main$Planet → Planet（JavaVisualizer のフレームの名前に合わせる）
+            if (method.equals("<init>")) method = f.location().declaringType().name().replaceFirst("^.*[.$]", "");
             if (method.equals("<clinit>")) return;
+            // enum の values()・valueOf() はコンパイラが作るメソッドなので比べない
+            if (isEnum(f.location().declaringType()) && (method.equals("values") || method.equals("valueOf"))) return;
             Map<String, String> cur = new LinkedHashMap<>();
             List<LocalVariable> vars = f.visibleVariables();
             vars.sort(Comparator.comparing(LocalVariable::name));
@@ -154,6 +157,8 @@ public class TraceStates {
         if (v instanceof ObjectReference o) {
             ReferenceType t = o.referenceType();
             if (isThrowable(t)) return "<" + t.name().replaceFirst("^.*\\.", "") + ">";
+            // enum の定数は Color.GREEN（型の名前は入れ子の外側を除く）
+            if (isEnum(t)) return t.name().replaceFirst("^.*[.$]", "") + "." + ((StringReference) o.getValue(((ClassType) t).superclass().fieldByName("name"))).value();
             // ラッパー型（Integer など）は中の値、リスト（ArrayList・List.of）は [要素, …]、StringBuilder は StringBuilder("…")
             String jdk = jdkRepr(o, t, depth);
             if (jdk != null) return jdk;
@@ -219,6 +224,10 @@ public class TraceStates {
         StringBuilder sb = new StringBuilder("[");
         for (int i = 0; i < vs.size(); i++) sb.append(i > 0 ? ", " : "").append(repr(vs.get(i), depth + 1));
         return sb.append("]").toString();
+    }
+
+    static boolean isEnum(ReferenceType t) {
+        return t instanceof ClassType c && c.superclass() != null && c.superclass().name().equals("java.lang.Enum");
     }
 
     static boolean isThrowable(ReferenceType t) {

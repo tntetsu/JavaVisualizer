@@ -20,6 +20,7 @@ export function srepr(v, depth = 0) {
   if (isArray(v)) return depth >= 3 ? '[…]' : `[${v.map(x => srepr(x, depth + 1)).join(', ')}]`;
   if (isObject(v)) {
     if (isThrowable(v)) return `<${v.cls.name}>`;
+    if (v.__enum) return `${v.cls.name}.${v.__enum.name}`;
     if (depth >= 3) return `${v.cls.name}{…}`;
     const keys = Object.keys(v.fields).sort();
     return `${v.cls.name}{${keys.map(k => `${k}=${srepr(v.fields[k], depth + 1)}`).join(', ')}}`;

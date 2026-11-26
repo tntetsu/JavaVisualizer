@@ -24,8 +24,10 @@ const unsupported = () => new JavaError('UnsupportedOperationException', null);
 // ── 比較（Collections.sort・max・min） ──────────────────────────────────────────
 
 /** 自然な順序（Comparable）での比較。数・文字・文字列だけ（ほかは ClassCastException） */
-export function naturalCompare(a, b) {
+export function naturalCompare(a, b, ctx) {
   if (a === null || b === null) throw new JavaError('NullPointerException', null);
+  // 自作のクラス（Comparable）・enum は ctx.compareTo（ユーザーの compareTo を呼ぶ。ADR-008）
+  if (a && typeof a === 'object' && a.__type__ === 'JObject' && ctx?.compareTo) return ctx.compareTo(a, b);
   if (isString(a) && isString(b)) {
     const n = Math.min(a.s.length, b.s.length);
     for (let i = 0; i < n; i++) if (a.s.charCodeAt(i) !== b.s.charCodeAt(i)) return a.s.charCodeAt(i) - b.s.charCodeAt(i);
@@ -85,7 +87,7 @@ export function callListMethod(list, name, args, ctx, argTypes = []) {
     case 'indexOf': return indexOf(a0);
     case 'lastIndexOf': { for (let i = list.length - 1; i >= 0; i--) if (ctx.equals(a0, list[i])) return i; return -1; }
     case 'clear': need(); list.length = 0; return undefined;
-    case 'sort': need(); if (a0 !== null) return undefined; sortInPlace(list, naturalCompare); return undefined;
+    case 'sort': need(); if (a0 !== null) return undefined; sortInPlace(list, (x, y) => naturalCompare(x, y, ctx)); return undefined;
     case 'toString': return S(listString(list, ctx));
     case 'equals': return isList(a0) && a0.length === list.length && list.every((x, i) => ctx.equals(x, a0[i]));
     case 'hashCode': return list.reduce((h, x) => (Math.imul(31, h) + ctx.hashCode(x)) | 0, 1);
@@ -103,7 +105,7 @@ export function createCollectionBuiltins() {
       },
     }, 'java.util')],
     ['Collections', new JBuiltin('Collections', {
-      sort: ([list]) => { if (list.__jlist !== 'ArrayList') throw unsupported(); sortInPlace(list, naturalCompare); return undefined; },
+      sort: ([list], ctx) => { if (list.__jlist !== 'ArrayList') throw unsupported(); sortInPlace(list, (x, y) => naturalCompare(x, y, ctx)); return undefined; },
       reverse: ([list]) => { if (list.__jlist !== 'ArrayList') throw unsupported(); list.reverse(); return undefined; },
       swap: ([list, i, j]) => {
         if (i < 0 || i >= list.length) throw oob(i, list.length);
@@ -111,13 +113,13 @@ export function createCollectionBuiltins() {
         [list[i], list[j]] = [list[j], list[i]];
         return undefined;
       },
-      max: ([list]) => {
+      max: ([list], ctx) => {
         if (!list.length) throw new JavaError('NoSuchElementException', null);
-        return list.reduce((m, x) => (naturalCompare(x, m) > 0 ? x : m));
+        return list.reduce((m, x) => (naturalCompare(x, m, ctx) > 0 ? x : m));
       },
-      min: ([list]) => {
+      min: ([list], ctx) => {
         if (!list.length) throw new JavaError('NoSuchElementException', null);
-        return list.reduce((m, x) => (naturalCompare(x, m) < 0 ? x : m));
+        return list.reduce((m, x) => (naturalCompare(x, m, ctx) < 0 ? x : m));
       },
       frequency: ([list, o], ctx) => list.filter(x => ctx.equals(o, x)).length,
     }, 'java.util')],
@@ -195,7 +197,7 @@ export function callWrapperMethod(v, name, args, ctx) {
   const a0 = args[0];
   switch (name) {
     case 'equals': return sameBoxed(v, a0);
-    case 'compareTo': return naturalCompare(v, a0);
+    case 'compareTo': return naturalCompare(v, a0, ctx);
     case 'intValue': return isLong(v) ? Number(BigInt.asIntN(32, v)) : isDouble(v) ? Math.trunc(v.v) | 0 : num(v);
     case 'longValue': return BigInt(Math.trunc(num(v)));
     case 'doubleValue': return makeDouble(num(v));

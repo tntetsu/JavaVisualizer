@@ -107,7 +107,7 @@ function explainSyntaxError(src, err, pm) {
 
 /** end を付けないノード型（文と宣言。ADR-008） */
 const STATEMENT_TYPES = new Set([
-  'Program', 'ClassDeclaration', 'FieldDeclaration', 'MethodDefinition', 'BlockStatement', 'VariableDeclaration',
+  'Program', 'YieldStatement', 'ClassDeclaration', 'FieldDeclaration', 'MethodDefinition', 'BlockStatement', 'VariableDeclaration',
   'ExpressionStatement', 'IfStatement', 'WhileStatement', 'DoWhileStatement', 'ForStatement', 'ForOfStatement',
   'SwitchStatement', 'SwitchCase', 'BreakStatement', 'ContinueStatement', 'ReturnStatement', 'ThrowStatement',
   'TryStatement', 'CatchClause', 'EmptyStatement',
@@ -246,25 +246,49 @@ export function parse(src) {
     });
   }
 
-  function classDecl(n) {
-    if (n.name !== 'ClassDeclaration') {
-      const what = { InterfaceDeclaration: 'インターフェース', EnumDeclaration: '列挙型（enum）', RecordDeclaration: 'レコード（record）' }[n.name] ?? n.name;
-      return unsupported(what, n);
-    }
+  /**
+   * クラス・インターフェース・enum の宣言（ADR-008）。クラスの中の型（入れ子の型）は static の入れ子として扱い、
+   * nested に集めて、プログラムの直下の型と同じ並びに置く（outer に外側の型の名前）
+   * @param {object} n Lezer のノード
+   * @param {object[]} nested 入れ子の型を集める配列
+   * @param {string|null} outer 外側の型の名前
+   */
+  function classDecl(n, nested, outer = null) {
+    if (n.name === 'RecordDeclaration') return unsupported('レコード（record）', n);
+    const kind = { ClassDeclaration: 'class', InterfaceDeclaration: 'interface', EnumDeclaration: 'enum' }[n.name];
+    if (!kind) return unsupported(n.name, n);
     const id = child(n, 'Definition');
+    const name = text(id);
     const sup = child(n, 'Superclass');
     if (child(n, 'TypeParameters')) unsupported('ジェネリクスのクラス', n);
-    if (child(n, 'SuperInterfaces')) unsupported('インターフェースの実装（implements）', child(n, 'SuperInterfaces'));
-    const body = child(n, 'ClassBody');
+    // implements（クラス・enum）と、インターフェースの extends
+    const ifaceList = child(n, 'SuperInterfaces', 'ExtendsInterfaces');
+    const interfaces = ifaceList ? kids(child(ifaceList, 'InterfaceTypeList')).filter(c => c.name !== ',').map(typeOf) : [];
+    const body = child(n, 'ClassBody', 'InterfaceBody', 'EnumBody');
     const members = [];
+    const constants = [];   // enum の定数
+    const memberNodes = [];
     for (const m of kids(body)) {
+      if (m.name === 'EnumBodyDeclarations') memberNodes.push(...kids(m));
+      else memberNodes.push(m);
+    }
+    for (const m of memberNodes) {
       switch (m.name) {
-        case '{': case '}': case ';': break;
-        case 'FieldDeclaration': {
+        case '{': case '}': case ';': case ',': break;
+        case 'EnumConstant': {
+          if (child(m, 'ClassBody')) unsupported('本体のある enum の定数', m);
+          const def = child(m, 'Definition');
+          const al = child(m, 'ArgumentList');
+          constants.push({ name: text(def), arguments: al ? args(al) : [], loc: pm.loc(m.from), end: pm.end(m.to) });
+          break;
+        }
+        case 'FieldDeclaration': case 'ConstantDeclaration': {
           const mods = modifiers(m);
           const t = typeOf(typeChild(m));
+          // インターフェースのフィールドは、書かなくても public static final
+          const constant = m.name === 'ConstantDeclaration' || kind === 'interface';
           members.push(mk('FieldDeclaration', m, {
-            static: mods.includes('static'), final: mods.includes('final'), modifiers: mods, varType: t,
+            static: constant || mods.includes('static'), final: constant || mods.includes('final'), modifiers: mods, varType: t,
             declarations: children(m, 'VariableDeclarator').map(d => declarator(d, t)),
           }));
           break;
@@ -275,33 +299,41 @@ export function parse(src) {
           if (child(m, 'TypeParameters')) unsupported('ジェネリクスのメソッド', m);
           const def = child(m, 'Definition');
           const bodyNode = child(m, 'Block', 'ConstructorBody');
-          if (!bodyNode) unsupported('本体のないメソッド（abstract など）', m);
+          // 本体のないメソッドは抽象メソッド（インターフェースのメソッドは、default・static でなければ抽象）
+          const isAbstract = !bodyNode;
+          if (isAbstract && !(mods.includes('abstract') || kind === 'interface')) unsupported('本体のないメソッド', m);
           members.push(mk('MethodDefinition', m, {
             kind: ctor ? 'constructor' : 'method',
-            static: mods.includes('static'), modifiers: mods,
+            static: mods.includes('static'), abstract: isAbstract, modifiers: mods,
             key: mk('Identifier', def, { name: text(def) }),
             returnType: ctor ? null : typeOf(typeChild(m)),
             throws: (() => { const t = child(m, 'Throws'); return t ? kids(t).filter(c => c.name !== 'throws' && c.name !== ',').map(typeOf) : []; })(),
-            bodyEnd: pm.loc(bodyNode.to - 1),   // 閉じる } の位置（return の忘れの位置。javac と同じ）
+            bodyEnd: bodyNode ? pm.loc(bodyNode.to - 1) : null,   // 閉じる } の位置（return の忘れの位置。javac と同じ）
             value: mk('FunctionExpression', m, {
               id: mk('Identifier', def, { name: text(def) }),
               params: params(child(m, 'FormalParameters')),
-              body: block(bodyNode),
+              body: bodyNode ? block(bodyNode) : null,
             }),
           }));
           break;
         }
         case 'ClassDeclaration': case 'InterfaceDeclaration': case 'EnumDeclaration': case 'RecordDeclaration':
-          unsupported('クラスの中のクラス（内部クラス・入れ子のクラス）', m); break;
+          nested.push(classDecl(m, nested, name));
+          break;
         case 'StaticInitializer': unsupported('static 初期化ブロック', m); break;
         case 'Block': unsupported('初期化ブロック', m); break;
         default: unsupported(m.name, m);
       }
     }
+    const mods = modifiers(n);
     return mk('ClassDeclaration', n, {
-      id: mk('Identifier', id, { name: text(id) }),
-      modifiers: modifiers(n),
+      id: mk('Identifier', id, { name }),
+      kind, outer,
+      modifiers: mods,
+      abstract: kind === 'interface' || mods.includes('abstract'),
       superClass: sup ? mk('Identifier', kids(sup)[1], { name: typeOf(kids(sup)[1]) }) : null,
+      interfaces,
+      constants,
       body: mk('ClassBody', body, { body: members }),
     });
   }
@@ -398,7 +430,7 @@ export function parse(src) {
       case 'TryWithResourcesStatement': return unsupported('try-with-resources（try (…)）', n);
       case 'LabeledStatement': return unsupported('ラベル付きの文', n);
       case 'AssertStatement': return unsupported('assert 文', n);
-      case 'YieldStatement': return unsupported('yield', n);
+      case 'YieldStatement': return mk('YieldStatement', n, { argument: expr(kids(n).find(c => c.name !== 'yield' && c.name !== ';')) });
       case 'ClassDeclaration': return unsupported('メソッドの中のクラス', n);
     }
     return unsupported(`文「${text(n).slice(0, 20)}」`, n);
@@ -425,15 +457,20 @@ export function parse(src) {
         const isDefault = !!child(label, 'default');
         const tests = kids(label).filter(k => k.name !== 'case' && k.name !== 'default' && k.name !== ',').map(expr);
         const bodyN = kids(c).find(k => k.name !== 'SwitchLabel' && k.name !== '->' && k.name !== ';');
-        const body = bodyN.name === 'Block' || bodyN.name === 'ThrowStatement' || bodyN.name === 'ExpressionStatement' ? stmt(bodyN)
-          : mk('ExpressionStatement', bodyN, { expression: expr(bodyN) });
+        // switch 式の「case 1 -> 10;」は値を出す式（YieldStatement と同じ扱い）。switch 文では式文
+        let body;
+        if (bodyN.name === 'Block' || bodyN.name === 'ThrowStatement') body = stmt(bodyN);
+        else {
+          const e = bodyN.name === 'ExpressionStatement' ? kids(bodyN)[0] : bodyN;
+          body = type === 'SwitchExpression' ? mk('YieldStatement', bodyN, { argument: expr(e), implicit: true })
+            : mk('ExpressionStatement', bodyN, { expression: expr(e) });
+        }
         cases.push(mk('SwitchCase', c, { tests, default: isDefault, consequent: [body], head: { loc: pm.loc(label.from), end: pm.end(label.to) } }));
         continue;
       }
       if (!cur) unsupported('switch の書き方', c);
       cur.consequent.push(stmt(c));
     }
-    if (type === 'SwitchExpression') unsupported('switch 式', n);
     return mk(type, n, { discriminant: parenInner(n), cases, arrow });
   }
 
@@ -581,7 +618,14 @@ export function parse(src) {
         return mk('CastExpression', n, { targetType: typeOf(t), argument: expr(ks[ks.length - 1]) });
       }
       case 'InstanceofExpression': {
-        if (child(n, 'TypePattern')) unsupported('instanceof のパターン（instanceof 型 変数）', n);
+        const pat = child(n, 'TypePattern');
+        if (pat) {
+          // o instanceof String s（Java 16 以降）：当てはまれば s に入れる（ADR-008）
+          const def = child(pat, 'Definition');
+          return mk('InstanceofExpression', n, {
+            expression: expr(ks[0]), targetType: typeOf(typeChild(pat)), binding: mk('Identifier', def, { name: text(def) }),
+          });
+        }
         return mk('InstanceofExpression', n, { expression: expr(ks[0]), targetType: typeOf(ks[2]) });
       }
       case 'SwitchExpression': return switchNode(n, 'SwitchExpression');
@@ -600,7 +644,9 @@ export function parse(src) {
     if (c.name === 'ImportDeclaration') { imports.push(text(c)); continue; }
     if (c.name === 'PackageDeclaration') continue;
     if (c.name === ';') continue;
-    body.push(classDecl(c));
+    const nested = [];
+    body.push(classDecl(c, nested));
+    body.push(...nested);
   }
   return { type: 'Program', body, imports: [...imports, ...qualifiedImports], loc: { line: 1, column: 1 }, end: null, range: [0, src.length] };
 }

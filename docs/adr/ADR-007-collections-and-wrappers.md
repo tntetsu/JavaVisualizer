@@ -35,7 +35,7 @@ scores.remove(Integer.valueOf(85));   // 値 85 を消す（remove(Object)）
 | `Integer`・`Double` などのラッパー型 | 中のプリミティブの値そのもの（`Integer` は JS の number）。箱のオブジェクトは作らない |
 
 - **ジェネリクスの型**：パーサーが型引数を残し（`'ArrayList<Integer>'`）、静的な検査が要素の型を使う（`get` の戻り値、`add` の引数、拡張 `for` の変数）。`new ArrayList<>()` の `<>` は代入先の型から決める。型引数はどれとも同じでないと代入できない（`List<Integer>` に `ArrayList<Double>` は入らない）。ワイルドカード（`?`）は「まだ対応していません」
-- **ボクシング・アンボクシング**：`int` → `Integer` に入れられ、`Integer` → `int`（と拡大変換）に取り出せる。`null` を取り出すと `NullPointerException`
+- **ボクシング・アンボクシング**：`int` → `Integer` に入れられ、`Integer` → `int`（と拡大変換）に取り出せる。`null` を取り出すと `NullPointerException`（文面は ADR-009 で本物と同じ `Cannot invoke "java.lang.Integer.intValue()" because …` にした）
 - **`remove(int)` と `remove(Object)`**：本物と同じく、引数の静的な型で決める（静的な検査が引数の型の印を付ける）
 - **`contains`・`indexOf`・`remove(Object)`**：`equals` で比べる。自作のクラスの `equals(Object)` があれば呼ぶ
 - **ラッパー型の `==`**：両側の静的な型がラッパー型なら参照の比較。箱を持たないので、`Integer.valueOf` のキャッシュの規則で決める（`Integer`・`Long` は -128〜127 なら値で、その外は `false`、`Double` はいつも `false`）。**同じ箱を 2 つの変数で指す場合（`Integer y = x; x == y`）は、本物は `true` だが、ここでは値が -128〜127 の外だと `false` になる**（本物と違う唯一の点）

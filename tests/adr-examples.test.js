@@ -196,3 +196,49 @@ test('ADR-008 例：enum の表示・switch 式・インターフェースの ne
   const e = compileError(main('        Shape s = new Shape();', 'interface Shape {\n    double area();\n}\n'));
   assert.equal(e.javac, 'Shape is abstract; cannot be instantiated');
 });
+
+test('ADR-009 例：HashMap の順序と表示・null を int に取り出す・繰り返しの途中で変える・マップを拡張 for で回す', async () => {
+  const { javaValueModel: m } = await import('../src/lang/java.js');
+  const src = [
+    'import java.util.*;',
+    '',
+    'public class Main {',
+    '    public static void main(String[] args) {',
+    '        Map<String, Integer> count = new HashMap<>();',
+    '        for (String w : "the cat sat on the mat".split(" ")) {',
+    '            count.put(w, count.getOrDefault(w, 0) + 1);',
+    '        }',
+    '        System.out.println(count);',
+    '        Set<String> seen = new HashSet<>(count.keySet());',
+    '        System.out.println(seen);',
+    '        int n = count.get("dog");',
+    '    }',
+    '}',
+    '',
+  ].join('\n');
+  const err = compileError(src);   // 実行時エラーで止まる（途中までのトレースを持つ）
+  // 本物の Java と同じ順序（ハッシュ表の並び。入れた順ではない）
+  assert.deepEqual(joinConsoleLines(err.partialConsoleLogs).map(l => l.text), ['{the=2, mat=1, cat=1, sat=1, on=1}', '[the, mat, cat, sat, on]']);
+  // 本物と同じ文面の NullPointerException（日本語の説明では、何が null だったかを書く）
+  assert.match(err.message, /Cannot invoke "java\.lang\.Integer\.intValue\(\)" because the return value of "java\.util\.Map\.get\(Object\)" is null/);
+  assert.match(err.message, /int の値を取り出せません/);
+  // 画面では、マップは辞書（"the": 2）、集合はリストと同じかっこで見せる
+  const env = err.partialTrace.filter(e => e.phase === 'exit' && e.nodeType === 'VariableDeclaration' && e.loc.line === 10).at(-1).frameEnvs.at(-1);
+  assert.equal(m.kind(env.count), 'mapping');
+  assert.equal(m.label(env.count), 'HashMap<String, Integer>(5)');
+  assert.deepEqual(m.entries(env.count).map(([k, v]) => `${k}: ${m.literal(v)}`), ['"the": 2', '"mat": 1', '"cat": 1', '"sat": 1', '"on": 1']);
+  assert.equal(m.label(env.seen), 'HashSet<String>(5)');
+  assert.deepEqual(m.brackets(env.seen), ['[', ']']);
+
+  // 繰り返しの途中で集合から除くと ConcurrentModificationException
+  const cme = compileError([
+    'import java.util.*;', '', 'public class Main {', '    public static void main(String[] args) {',
+    '        Set<String> names = new HashSet<>(List.of("Alice", "Bob", "Carol"));',
+    '        for (String n : names) {', '            if (n.startsWith("A")) {', '                names.remove(n);', '            }', '        }',
+    '    }', '}', '',
+  ].join('\n'));
+  assert.match(cme.message, /java\.util\.ConcurrentModificationException/);
+  // マップをそのまま拡張 for で回すのはコンパイルエラー
+  const e = compileError('import java.util.*;\n' + main('        Map<String, Integer> m = new HashMap<>();\n        for (String k : m) System.out.println(k);'));
+  assert.equal(e.javac, 'for-each not applicable to expression type');
+});

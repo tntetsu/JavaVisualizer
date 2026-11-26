@@ -14,7 +14,7 @@ import {
 } from 'js-interpreter/core';
 import {
   JavaError, JavaCompileError, makeDouble, makeChar, makeString, makeArray, javaCloneHook,
-  isInt, isLong, isDouble, isChar, isBool, isString, isArray, isList, isNumeric, num, makeList, BOXES, baseType,
+  isInt, isLong, isDouble, isChar, isBool, isString, isArray, isList, isSet, isMap, isEntry, isNumeric, num, makeList, BOXES, baseType, boxType,
   coerce, defaultValue, isPrimitiveType, isArrayType, elemTypeOf, javaStr, typeName,
 } from './values.js';
 import {
@@ -25,6 +25,10 @@ import { createBuiltins, isBuiltin, callStringMethod, createScanner } from './bu
 import {
   callListMethod, listString, createCollectionBuiltins, makeStringBuilder, isStringBuilder, callStringBuilderMethod, callWrapperMethod,
 } from './collections.js';
+import {
+  MAP_KINDS, SET_KINDS, constructMap, constructSet, callMapMethod, callSetMethod, callEntryMethod, createMapBuiltins,
+  mapString, setString, entryString, mapHashCode, setHashCode, entryHashCode, entryEquals, sourceMap, VOID,
+} from './maps.js';
 
 const MAX_CALL_DEPTH = 3000;
 
@@ -140,11 +144,24 @@ function stringMethodParams(name, argNodes) {
   return '';
 }
 
+/** java.util のコレクションのメソッドの引数の型（型引数を消した形。"java.util.Map.get(Object)"） */
+const JDK_PARAMS = {
+  Map: { get: 'Object', getOrDefault: 'Object, Object', remove: 'Object', put: 'Object, Object', putIfAbsent: 'Object, Object', replace: 'Object, Object' },
+  List: { get: 'int', remove: 'int', set: 'int, Object' },
+  Entry: { setValue: 'Object' },
+};
+const JDK_FAMILY = { HashMap: 'Map', TreeMap: 'Map', LinkedHashMap: 'Map', Map: 'Map', ArrayList: 'List', List: 'List', Entry: 'Entry' };
+
 /** 呼び出しの式のメソッドの書き方（"Node.move(int, String)"）。静的な検査が付けた型の印から作る */
 function methodDescriptor(node) {
   const recv = node.recvType;
   if (!recv) return null;
   const name = node.callee.type === 'Identifier' ? node.callee.name : node.callee.property.name;
+  const fam = JDK_FAMILY[baseType(recv)];
+  if (fam) {
+    const cls = baseType(recv) === 'Entry' ? 'Map$Entry' : baseType(recv);
+    return `java.util.${cls}.${name}(${JDK_PARAMS[fam][name] ?? ''})`;
+  }
   const params = node.signature !== undefined ? node.signature.split(',').filter(Boolean).join(', ')
     : recv === 'String' ? stringMethodParams(name, node.arguments) : '';
   return `${recv}.${name}(${params})`;
@@ -155,7 +172,8 @@ function actionJa(action) {
   let m;
   if ((m = action.match(/^Cannot read field "(\w+)"$/))) return `フィールド ${m[1]} を読めません`;
   if ((m = action.match(/^Cannot assign field "(\w+)"$/))) return `フィールド ${m[1]} に値を入れられません`;
-  if ((m = action.match(/^Cannot invoke "(?:[\w.]+\.)?(\w+)\(.*\)"$/))) return `メソッド ${m[1]}() を呼べません`;
+  if ((m = action.match(/^Cannot invoke "java\.lang\.\w+\.(\w+)Value\(\)"$/))) return `${m[1]} の値を取り出せません`;
+  if ((m = action.match(/^Cannot invoke "(?:[\w.$]+\.)?(\w+)\(.*\)"$/))) return `メソッド ${m[1]}() を呼べません`;
   if (/^Cannot load from/.test(action)) return '配列の要素を読めません';
   if (/^Cannot store to/.test(action)) return '配列の要素に値を入れられません';
   if (action === 'Cannot read the array length') return '配列の長さ（length）を読めません';
@@ -282,6 +300,7 @@ export function createRuntime(recorder, classes, { stdin = '' } = {}) {
     hashCode: (v) => javaHashCode(v, rt),
   };
   for (const [k, v] of createCollectionBuiltins()) rt.builtins.set(k, v);
+  for (const [k, v] of createMapBuiltins()) rt.builtins.set(k, v);
   return rt;
 }
 
@@ -295,6 +314,9 @@ function currentDepths(rt) {
 export function stringOf(v, rt) {
   return javaStr(v, (o) => {
     if (isList(o)) return listString(o, rt.bctx);
+    if (isMap(o)) return mapString(o, rt.bctx);
+    if (isSet(o)) return setString(o, rt.bctx);
+    if (isEntry(o)) return entryString(o, rt.bctx);
     if (isStringBuilder(o)) return o.fields.value.s;
     if (isJObject(o)) {
       const m = findMethods(o.cls, 'toString').find(x => x.paramTypes.length === 0 && !x.static);
@@ -318,6 +340,10 @@ export function javaEquals(a, b, rt) {
   if (a === null || b === null) return a === b;
   if (isString(a)) return isString(b) && a.s === b.s;
   if (isList(a)) return callListMethod(a, 'equals', [b], rt.bctx) === true;
+  if (isMap(a)) return callMapMethod(a, 'equals', [b], rt.bctx) === true;
+  if (isSet(a)) return callSetMethod(a, 'equals', [b], rt.bctx) === true;
+  if (isEntry(a)) return entryEquals(a, b, rt.bctx);
+  if (isArray(a)) return a === b;
   if (isJObject(a)) {
     const m = findMethods(a.cls, 'equals').find(x => !x.static && x.paramTypes.length === 1 && x.paramTypes[0] === 'Object');
     if (m) {
@@ -355,6 +381,9 @@ export function javaHashCode(v, rt) {
     return (buf.getInt32(0) ^ buf.getInt32(4)) | 0;
   }
   if (isList(v)) return callListMethod(v, 'hashCode', [], rt.bctx);
+  if (isMap(v)) return mapHashCode(v, rt.bctx);
+  if (isSet(v)) return setHashCode(v, rt.bctx);
+  if (isEntry(v)) return entryHashCode(v, rt.bctx);
   if (isJObject(v)) {
     const m = findMethods(v.cls, 'hashCode').find(x => !x.static && x.paramTypes.length === 0);
     if (m) {
@@ -602,6 +631,10 @@ function argDistance(v, t) {
   // ラッパー型（Integer は int の値を包む）・リスト
   if (BOXES[t]) { const d = argDistance(v, BOXES[t]); return d === 0 ? 1 : -1; }
   if (/^(ArrayList|List)$/.test(baseType(t))) return isList(v) ? 0 : -1;
+  if (/^(Map|HashMap|TreeMap|LinkedHashMap)$/.test(baseType(t))) return isMap(v) ? 0 : -1;
+  if (/^(Set|HashSet|TreeSet|LinkedHashSet)$/.test(baseType(t))) return isSet(v) ? 0 : -1;
+  if (baseType(t) === 'Collection') return isList(v) || isSet(v) ? 1 : -1;
+  if (baseType(t) === 'Entry') return isEntry(v) ? 0 : -1;
   if (isJObject(v)) {
     let dist = 0;
     for (let k = v.cls; k; k = k.superClass, dist++) if (k.name === baseType(t)) return dist;
@@ -809,6 +842,11 @@ function instanceOf(v, t) {
   t = baseType(t);
   if (t === 'Object') return true;
   if (t === 'ArrayList' || t === 'List') return isList(v);
+  if (t === 'Map' || t === 'Set' || t === 'Collection' || t === 'Entry') {
+    return t === 'Map' ? isMap(v) : t === 'Set' ? isSet(v) : t === 'Entry' ? isEntry(v) : isList(v) || isSet(v);
+  }
+  if (MAP_KINDS.has(t)) return isMap(v) && (v.kind === t || (t === 'HashMap' && v.kind === 'LinkedHashMap'));
+  if (SET_KINDS.has(t)) return isSet(v) && (v.__jset === t || (t === 'HashSet' && v.__jset === 'LinkedHashSet'));
   if (t === 'StringBuilder') return isStringBuilder(v);
   if (BOXES[t]) return argDistance(v, BOXES[t]) === 0;
   if (t === 'String') return isString(v);
@@ -892,7 +930,16 @@ export function evaluate(node, env, rt, depth = 0, callDepth = 0) {
   // 型の名前（System・Math・クラス名）と、そこから組み込みのオブジェクトを取り出すだけの参照（System.out）は、
   // Java では値を持つ式ではないので記録しない（式評価のビューで class System と置き換わらないように。ADR-003 追記）
   if (isTypeReference(node, env, rt)) return _eval(node, env, rt, depth, callDepth);
-  return rt.recorder.record(node, env, depth, callDepth, () => _eval(node, env, rt, depth, callDepth));
+  const v = rt.recorder.record(node, env, depth, callDepth, () => _eval(node, env, rt, depth, callDepth));
+  // 静的な検査が「ここで Integer などから取り出す」と印を付けた式が null なら、本物と同じく intValue() の呼び出しの
+  // NullPointerException（int c = map.get(w); の形。ADR-009）
+  if (v === null && node.unboxFrom) throw unboxNpe(node.unboxFrom, node, env, rt);
+  return v;
+}
+
+/** null の Integer などを取り出そうとしたときの NullPointerException（"java.lang.Integer.intValue()" を呼べない） */
+function unboxNpe(boxed, node, env, rt) {
+  return npeAt(node.loc, `Cannot invoke "java.lang.${boxed}.${BOXES[boxed]}Value()"`, node, env, rt);
 }
 
 /** 型の名前（変数・フィールドでない、クラス・組み込みのクラスの名前）か */
@@ -1001,11 +1048,22 @@ function _eval(node, env, rt, depth, callDepth) {
       if (!Array.isArray(coll)) throw compileError('拡張 for 文（for (型 変数 : …)）で繰り返せるのは配列とリストだけです', node.right.loc, 'for-each not applicable to expression type');
       // 各回のループ変数への代入を LoopBinding として記録する（「人」のステップが各回で止まる。ADR-003）
       const binding = { type: 'LoopBinding', loc: node.left.loc, end: node.left.end };
-      for (let i = 0; i < coll.length; i++) {
+      // 集合・マップの keySet などは、はじめの中身を順にたどる。途中で元のマップが変わったら、次の要素へ進むときに
+      // ConcurrentModificationException（本物の HashMap の繰り返しと同じ。最後の要素のあとは何も起きない。ADR-009）
+      const src = sourceMap(coll);
+      const items = src ? [...coll] : coll;
+      const mod0 = src?.__t.modCount;
+      for (let i = 0; i < items.length; i++) {
+        if (src && i > 0 && src.__t.modCount !== mod0) throw new JavaError('ConcurrentModificationException', null, node.right.loc);
         const ienv = new JScope(env, 'block');
-        const t = node.varType === 'var' ? (coll.__jelem ?? coll.__jlistElem ?? undefined) : node.varType;
+        const t = node.varType === 'var' ? (coll.__jelem ?? coll.__jlistElem ?? coll.__jsetElem ?? undefined) : node.varType;
         rt.recorder.record(binding, ienv, d, callDepth, () => {
-          declare(ienv, node.left.name, t, assignConvert(coll[i], t));
+          if (items[i] === null && isPrimitiveType(t) && !isArray(coll)) {
+            // for (int x : list) の null の要素：本物は Iterator.next() の戻り値を intValue() で取り出す
+            const boxed = coll.__jlistElem ?? coll.__jsetElem ?? boxType(t);
+            throw npe(node.right.loc, `Cannot invoke "java.lang.${boxed}.${BOXES[boxed] ?? t}Value()" because the return value of "java.util.Iterator.next()" is null`);
+          }
+          declare(ienv, node.left.name, t, assignConvert(items[i], t));
           return ienv.bindings.get(node.left.name);
         });
         const r = ev(node.body, ienv);
@@ -1191,6 +1249,18 @@ function _eval(node, env, rt, depth, callDepth) {
         if (args[0] === null) throw new JavaError('NullPointerException', null, node.loc);
         return makeList(Array.isArray(args[0]) ? args[0] : [], { elemType: node.elemType ?? null });
       }
+      // HashMap・TreeMap・LinkedHashMap・HashSet・TreeSet・LinkedHashSet。型引数は静的な検査が付けた印（ADR-009）
+      if ((MAP_KINDS.has(name) || SET_KINDS.has(name)) && name !== 'Map' && name !== 'Set' && !rt.classes.has(name)) {
+        const args = node.arguments.map(a => ev(a));
+        const ta = node.typeArgs ?? [];
+        try {
+          if (MAP_KINDS.has(name)) return constructMap(name, args, { keyType: ta[0] ?? null, valType: ta[1] ?? null }, rt.bctx);
+          return constructSet(name, args, ta[0] ?? null, rt.bctx);
+        } catch (e) {
+          if (e instanceof JavaError && !e.loc) e.loc = node.loc;
+          throw e;
+        }
+      }
       if (name === 'Scanner' && !rt.classes.has('Scanner')) {
         // new Scanner(System.in)：入力欄の内容を読む（ADR-005）
         node.arguments.forEach(a => ev(a));
@@ -1356,12 +1426,16 @@ function evalCall(node, env, rt, d, callDepth) {
   let r;
   try {
     if (isList(obj)) r = callListMethod(obj, name, args, rt.bctx, node.argTypes);
+    else if (isMap(obj)) r = callMapMethod(obj, name, args, rt.bctx, makeList);
+    else if (isSet(obj)) r = callSetMethod(obj, name, args, rt.bctx);
+    else if (isEntry(obj)) r = callEntryMethod(obj, name, args, rt.bctx);
     else if (isStringBuilder(obj)) r = callStringBuilderMethod(obj, name, args, rt.bctx);
     else if (isNumeric(obj) || isBool(obj)) r = callWrapperMethod(obj, name, args, rt.bctx);
   } catch (e) {
     if (e instanceof JavaError && !e.loc) e.loc = node.loc;
     throw e;
   }
+  if (r === VOID) return undefined;
   if (r !== undefined || (isList(obj) && /^(add|clear|sort)$/.test(name)) || (isStringBuilder(obj) && /^(setCharAt|setLength)$/.test(name))) return r;
   throw compileError(`${typeName(obj)} の値に ${name}(…) はありません`, callee.loc, 'cannot find symbol');
 }

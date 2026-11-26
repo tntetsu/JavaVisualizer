@@ -17,7 +17,7 @@
 - 言語ごとの差（ノードの分類・値の見せ方・エディタ・サンプル・エラーメッセージの英語化）は**言語プロファイル**でフロントエンドに渡す
 - パーサーは `@lezer/java` ＋ 自前の AST 変換（構文エラーの説明は自前）
 
-**現在のステータス**: Phase 0〜4 が終わり、2026-11-26 に公開した（https://tntetsu.github.io/JavaVisualizer/ 、リポジトリ `tntetsu/JavaVisualizer` も公開）。**Phase 5（対象の拡大）を進めている**：`ArrayList` など（ADR-007）と、インターフェース・`enum`・`switch` 式など（ADR-008）は済み。次は `HashMap`・`HashSet`（[docs/development-plan.md](docs/development-plan.md) の 4.1 節の Phase 5 に手順を書いた）。公開版はまだ Phase 4 の時点のまま（Phase 5 の機能は未公開）。**公開（デプロイ）はワークフローの手動の実行（workflow_dispatch）で行い、main への push ではテストとビルドだけ**。公開版を変える操作（手動の実行）は、実行する前に確認を取る。
+**現在のステータス**: Phase 0〜4 が終わり、2026-11-26 に公開した（https://tntetsu.github.io/JavaVisualizer/ 、リポジトリ `tntetsu/JavaVisualizer` も公開）。**Phase 5（対象の拡大）を進めている**：`ArrayList` など（ADR-007）、インターフェース・`enum`・`switch` 式など（ADR-008）、`HashMap`・`HashSet` など（ADR-009）は済み。次はサンプル（インターフェース・`enum`）・マニュアルと README の更新・Phase 5 の報告書（[docs/development-plan.md](docs/development-plan.md) の 4.1 節の Phase 5）。公開版はまだ Phase 4 の時点のまま（Phase 5 の機能は未公開）。**公開（デプロイ）はワークフローの手動の実行（workflow_dispatch）で行い、main への push ではテストとビルドだけ**。公開版を変える操作（手動の実行）は、実行する前に確認を取る。
 
 ## 関連リポジトリ
 
@@ -117,7 +117,9 @@ Java で分かったこと（Phase 5 で足したもの）：
 
 - JDK のクラス（`ArrayList`・`StringBuilder`・ラッパー型・`enum`）を変数の状態の比較で書くときは、`tests/tools/TraceStates.java`（JDI 側）と `tests/tools/state-changes.js`（こちら側）を同じ書き方にそろえる（`[1, 2]`・`StringBuilder("ab")`・`Color.GREEN`）。新しい組み込みのクラスを足したら、両方に足す
 - `@lezer/java` は入れ子の型引数の `>>` をシフト演算子として読むので、`parse.js` の `splitGenericClosers` で直してから読む
-- テスト：`npm test` は約 1 分半（330 件ほど）。`tests/cases/*.java`（同じ名前の `.stdin` は入力）・`tests/compile-errors/*.java` に足すと、本物の Java との比較に自動で入る
+- `HashMap`・`HashSet` の繰り返しの順序は、本物の表（容量・`hash ^ (hash >>> 16)`・同じ位置は入れた順・9 個で広げる）を `src/engine/maps.js` で再現している（ADR-009）。JDI 側は `HashMap` の `table`・`LinkedHashMap` の `head`/`after`・`TreeMap` の木を読む。`Map.of`・`Set.of` は本物の順序が実行ごとに変わるので、比較では文字列の順に並べる
+- 入れ子のクラス（`static class Point`）の値は、変数の状態の比較では JDI と同じく `Main$Point{…}` と書く
+- テスト：`npm test` は約 1 分半（340 件ほど）。`tests/cases/*.java`（同じ名前の `.stdin` は入力）・`tests/compile-errors/*.java` に足すと、本物の Java との比較に自動で入る
 
 Java で分かったこと：
 

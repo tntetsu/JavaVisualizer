@@ -3,10 +3,13 @@
  *
  * 本物の Java 側（tests/tools/TraceStates.java）と同じ時点・同じ書き方にする。
  */
-import { isArray, isList, isObject, isString, isChar, isDouble, doubleToString, quoteString } from '../../src/engine/values.js';
+import { isArray, isList, isSet, isMap, isEntry, isObject, isString, isChar, isDouble, doubleToString, quoteString } from '../../src/engine/values.js';
 import { isStringBuilder } from '../../src/engine/collections.js';
 import { isThrowable } from '../../src/engine/objects.js';
 import { isBuiltin } from '../../src/engine/builtins.js';
+
+/** Java の Collections.sort と同じ並べ方（UTF-16 の符号の順） */
+const sortJava = (xs) => [...xs].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
 /** TraceStates.java の repr と同じ書き方 */
 export function srepr(v, depth = 0) {
@@ -16,14 +19,28 @@ export function srepr(v, depth = 0) {
   if (isDouble(v)) return doubleToString(v.v);
   if (isBuiltin(v)) return `<${v.name}>`;   // Scanner など（TraceStates.java と同じく型名だけ）
   if (isStringBuilder(v)) return `StringBuilder(${quoteString(v.fields.value.s)})`;
+  // マップ・集合・Map.Entry（ADR-009）。Map.of・Set.of は本物の順序が実行ごとに変わるので、文字列の順に並べる
+  if (isMap(v)) {
+    if (depth >= 3) return '{…}';
+    const items = v.entries.map(e => `${srepr(e.key, depth + 1)}=${srepr(e.value, depth + 1)}`);
+    return `{${(v.kind === 'Map' ? sortJava(items) : items).join(', ')}}`;
+  }
+  if (isSet(v)) {
+    if (depth >= 3) return '[…]';
+    const items = v.map(x => srepr(x, depth + 1));
+    return `[${(v.__jset === 'Set' && !v.__jview ? sortJava(items) : items).join(', ')}]`;
+  }
+  if (isEntry(v)) return depth >= 3 ? '…=…' : `${srepr(v.key, depth + 1)}=${srepr(v.value, depth + 1)}`;
   if (isList(v)) return depth >= 3 ? '[…]' : `[${v.map(x => srepr(x, depth + 1)).join(', ')}]`;
   if (isArray(v)) return depth >= 3 ? '[…]' : `[${v.map(x => srepr(x, depth + 1)).join(', ')}]`;
   if (isObject(v)) {
     if (isThrowable(v)) return `<${v.cls.name}>`;
     if (v.__enum) return `${v.cls.name}.${v.__enum.name}`;
-    if (depth >= 3) return `${v.cls.name}{…}`;
+    // 入れ子のクラスは、JDI と同じく Main$Point と書く
+    const cn = v.cls.outer ? v.cls.qualifiedName.replace(/\./g, '$') : v.cls.name;
+    if (depth >= 3) return `${cn}{…}`;
     const keys = Object.keys(v.fields).sort();
-    return `${v.cls.name}{${keys.map(k => `${k}=${srepr(v.fields[k], depth + 1)}`).join(', ')}}`;
+    return `${cn}{${keys.map(k => `${k}=${srepr(v.fields[k], depth + 1)}`).join(', ')}}`;
   }
   return String(v);
 }

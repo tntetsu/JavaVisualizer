@@ -121,6 +121,10 @@
         [
           "27_array_list",
           "ArrayList & StringBuilder"
+        ],
+        [
+          "28_hash_map",
+          "HashMap & HashSet"
         ]
       ]
     },

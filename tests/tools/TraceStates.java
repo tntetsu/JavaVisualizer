@@ -200,6 +200,40 @@ public class TraceStates {
                 if (e1 instanceof ObjectReference r && r.referenceType().name().equals("java.lang.Object")) { } else vs.add(e1);
                 return listRepr(vs, depth);
             }
+            // マップは {キー=値, …}、集合は [要素, …]、Map.Entry は キー=値（ADR-009）。順序は本物の繰り返しの順。
+            // Map.of・Set.of は本物では実行のたびに順序が変わるので、書いた文字列の順に並べる（state-changes.js と同じ）
+            case "java.util.HashMap", "java.util.LinkedHashMap", "java.util.TreeMap" -> {
+                return mapRepr(mapEntries(o), depth, false);
+            }
+            case "java.util.ImmutableCollections$MapN", "java.util.ImmutableCollections$Map1" -> {
+                return mapRepr(mapEntries(o), depth, true);
+            }
+            case "java.util.HashSet", "java.util.LinkedHashSet" -> {
+                List<Value> ks = new ArrayList<>();
+                for (Value[] kv : mapEntries((ObjectReference) o.getValue(fieldOf(t, "map")))) ks.add(kv[0]);
+                return setRepr(ks, depth, false);
+            }
+            case "java.util.TreeSet" -> {
+                List<Value> ks = new ArrayList<>();
+                for (Value[] kv : mapEntries((ObjectReference) o.getValue(fieldOf(t, "m")))) ks.add(kv[0]);
+                return setRepr(ks, depth, false);
+            }
+            case "java.util.ImmutableCollections$SetN" -> {
+                List<Value> ks = new ArrayList<>();
+                for (Value v : ((ArrayReference) o.getValue(t.fieldByName("elements"))).getValues()) if (v != null) ks.add(v);
+                return setRepr(ks, depth, true);
+            }
+            case "java.util.ImmutableCollections$Set12" -> {
+                List<Value> ks = new ArrayList<>();
+                ks.add(o.getValue(t.fieldByName("e0")));
+                Value e1 = o.getValue(t.fieldByName("e1"));
+                if (e1 instanceof ObjectReference r && r.referenceType().name().equals("java.lang.Object")) { } else if (e1 != null) ks.add(e1);
+                return setRepr(ks, depth, true);
+            }
+            case "java.util.HashMap$Node", "java.util.HashMap$TreeNode", "java.util.LinkedHashMap$Entry", "java.util.TreeMap$Entry", "java.util.KeyValueHolder" -> {
+                if (depth >= 3) return "…=…";
+                return repr(o.getValue(fieldOf(t, "key")), depth + 1) + "=" + repr(o.getValue(fieldOf(t, "value")), depth + 1);
+            }
             case "java.lang.StringBuilder" -> {
                 ClassType sup = ((ClassType) t).superclass();
                 ArrayReference bytes = (ArrayReference) o.getValue(sup.fieldByName("value"));
@@ -217,6 +251,68 @@ public class TraceStates {
             }
         }
         return null;
+    }
+
+    /** クラスとその上のクラスから、名前でフィールドを探す */
+    static Field fieldOf(ReferenceType t, String name) {
+        for (Field f : t.allFields()) if (f.name().equals(name)) return f;
+        throw new IllegalStateException(t.name() + "." + name);
+    }
+
+    /** マップの組（キーと値）を、本物の繰り返しの順に読む */
+    static List<Value[]> mapEntries(ObjectReference o) {
+        List<Value[]> out = new ArrayList<>();
+        ReferenceType t = o.referenceType();
+        String n = t.name();
+        if (n.equals("java.util.LinkedHashMap")) {
+            for (Value e = o.getValue(fieldOf(t, "head")); e != null; e = ((ObjectReference) e).getValue(fieldOf(((ObjectReference) e).referenceType(), "after"))) {
+                out.add(kv((ObjectReference) e));
+            }
+        } else if (n.equals("java.util.TreeMap")) {
+            inorder((ObjectReference) o.getValue(fieldOf(t, "root")), out);
+        } else if (n.equals("java.util.ImmutableCollections$Map1")) {
+            out.add(new Value[] { o.getValue(fieldOf(t, "k0")), o.getValue(fieldOf(t, "v0")) });
+        } else if (n.equals("java.util.ImmutableCollections$MapN")) {
+            List<Value> tab = ((ArrayReference) o.getValue(fieldOf(t, "table"))).getValues();
+            for (int i = 0; i < tab.size(); i += 2) if (tab.get(i) != null) out.add(new Value[] { tab.get(i), tab.get(i + 1) });
+        } else {
+            ArrayReference tab = (ArrayReference) o.getValue(fieldOf(t, "table"));
+            if (tab != null) {
+                for (Value b : tab.getValues()) {
+                    for (Value e = b; e != null; e = ((ObjectReference) e).getValue(fieldOf(((ObjectReference) e).referenceType(), "next"))) {
+                        out.add(kv((ObjectReference) e));
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    static Value[] kv(ObjectReference e) {
+        return new Value[] { e.getValue(fieldOf(e.referenceType(), "key")), e.getValue(fieldOf(e.referenceType(), "value")) };
+    }
+
+    static void inorder(ObjectReference e, List<Value[]> out) {
+        if (e == null) return;
+        inorder((ObjectReference) e.getValue(fieldOf(e.referenceType(), "left")), out);
+        out.add(kv(e));
+        inorder((ObjectReference) e.getValue(fieldOf(e.referenceType(), "right")), out);
+    }
+
+    static String mapRepr(List<Value[]> es, int depth, boolean sort) {
+        if (depth >= 3) return "{…}";
+        List<String> items = new ArrayList<>();
+        for (Value[] e : es) items.add(repr(e[0], depth + 1) + "=" + repr(e[1], depth + 1));
+        if (sort) Collections.sort(items);
+        return "{" + String.join(", ", items) + "}";
+    }
+
+    static String setRepr(List<Value> vs, int depth, boolean sort) {
+        if (depth >= 3) return "[…]";
+        List<String> items = new ArrayList<>();
+        for (Value v : vs) items.add(repr(v, depth + 1));
+        if (sort) Collections.sort(items);
+        return "[" + String.join(", ", items) + "]";
     }
 
     static String listRepr(List<Value> vs, int depth) {

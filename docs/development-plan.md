@@ -77,9 +77,8 @@ Java は実行の前にコンパイルし、型の誤りなどを見つける。
 **Phase 4（2026-11-26、[phase4-report.md](phase4-report.md)）**：サンプル 24 本（JS 版の 21 本に対応＋Java 向け 3 本）、マニュアル（日本語・英語）、README（日本語・英語）、GitHub Actions のワークフロー（push ではテストとビルドだけ、公開は手動）。全サンプル × 全タブでブラウザのエラー 0 件。
 
 **Phase 5（進行中、2026-11-26 時点）**：
-- 済み：`ArrayList`・`List.of`・`Collections`・`StringBuilder`・ラッパー型とジェネリクスの型（[ADR-007](adr/ADR-007-collections-and-wrappers.md)）、抽象クラス・インターフェース・`Comparable`・`enum`・`switch` 式・`instanceof` のパターン・入れ子の型（[ADR-008](adr/ADR-008-interfaces-enums-switch.md)）
-- 次：`HashMap`・`HashSet`（`TreeMap`・`LinkedHashMap` も）。繰り返しの順序を本物と同じにするため、`HashMap` の表を再現する（容量 16 から、要素数が容量の 0.75 倍を超えたら 2 倍、`hash = h ^ (h >>> 16)`、位置は `(容量 - 1) & hash`、同じ位置は入れた順、2 倍にするときは各位置の並びを保って分ける）。`Map.Entry`（`entrySet`・`getKey`・`getValue`）、`keySet`・`values`、`getOrDefault`・`putIfAbsent`・`containsKey`・`remove`、表示は `{the=3, over=1}`。自作のクラスのキーは、`hashCode` を書いていないと本物と順序が違う（識別のハッシュ値が違うため）
-- そのあと：サンプル（インターフェース・`enum`・`HashMap`）、マニュアル・README の「使える Java の範囲」の更新、Phase 5 の報告書、ラムダ式（必要なら）
+- 済み：`ArrayList`・`List.of`・`Collections`・`StringBuilder`・ラッパー型とジェネリクスの型（[ADR-007](adr/ADR-007-collections-and-wrappers.md)）、抽象クラス・インターフェース・`Comparable`・`enum`・`switch` 式・`instanceof` のパターン・入れ子の型（[ADR-008](adr/ADR-008-interfaces-enums-switch.md)）、`HashMap`・`HashSet`・`TreeMap`・`LinkedHashMap`・`TreeSet`・`LinkedHashSet`・`Map.of`・`Set.of`・`Map.Entry`（繰り返しの順序を本物と同じにする。`Integer` の `null` を取り出したときの `NullPointerException` の文面、`ConcurrentModificationException`。[ADR-009](adr/ADR-009-maps-and-sets.md)）、サンプル `28_hash_map`
+- 次：サンプル（インターフェース・`enum`）、マニュアル・README の「使える Java の範囲」の更新、Phase 5 の報告書、ラムダ式（必要なら。`map.merge`・`forEach`・`Comparator` に要る）
 
 ## 5. MVP の対象範囲（Phase 2）
 

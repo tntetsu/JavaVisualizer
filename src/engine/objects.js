@@ -152,6 +152,7 @@ export const BUILTIN_CLASSES = new Map([
   NoSuchElementException,
   Comparable,
   new JClass('InputMismatchException', NoSuchElementException, { builtin: true, pkg: 'java.util' }),
+  new JClass('ConcurrentModificationException', RuntimeException, { builtin: true, pkg: 'java.util' }),
 ].map(c => [c.name, c]));
 
 export const isThrowableClass = (c) => isSubclassOf(c, Throwable);

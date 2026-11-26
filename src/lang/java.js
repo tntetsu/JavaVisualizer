@@ -6,7 +6,7 @@
  */
 import { java } from '@codemirror/lang-java';
 import { JavaDebugger, ExecutionError } from '../engine/java-debugger.js';
-import { JDouble, JChar, JString, isArray, isList, isObject, num, literalOf } from '../engine/values.js';
+import { JDouble, JChar, JString, isArray, isList, isSet, isMap, isEntry, isObject, num, literalOf } from '../engine/values.js';
 import { isClass } from '../engine/objects.js';
 import { isBuiltin } from '../engine/builtins.js';
 import { messageToEnglish } from '../engine/messages-en.js';
@@ -24,6 +24,21 @@ export function localizeJavaError(message, lang) {
 
 /** リストの型の名前（ArrayList<Integer>・List<String>） */
 const listName = (v) => `${v.__jlist}${v.__jlistElem ? `<${v.__jlistElem}>` : ''}`;
+/** 集合の型の名前（HashSet<String>） */
+const setName = (v) => `${v.__jset}${v.__jsetElem ? `<${v.__jsetElem.replace(/,/g, ', ')}>` : ''}`;
+/** マップの型の名前（HashMap<String, Integer>） */
+const mapName = (v) => `${v.kind}${v.keyType ? `<${v.keyType}, ${v.valType}>` : ''}`;
+/** 集合・リストなどの配列（ビューでは配列と同じく添字と要素で見せる） */
+const isSeq = (v) => isArray(v) || isList(v) || isSet(v);
+
+/** マップのキーの書き方（"the"・3・'a'・Color.RED。オブジェクトは型の名前だけ） */
+function keyText(k) {
+  if (isObject(k)) return k.__enum ? `${k.cls.name}.${k.__enum.name}` : `${k.cls.name}{…}`;
+  if (isList(k) || isSet(k)) return '[…]';
+  if (isArray(k)) return '{…}';
+  if (isMap(k)) return '{…}';
+  return literalOf(k);
+}
 
 /** Java の値の見せ方（JSVisualizer の ValueModel） */
 export const javaValueModel = {
@@ -41,7 +56,9 @@ export const javaValueModel = {
     if (isObject(v) && v.__enum) return 'string';   // enum の定数は Color.GREEN と 1 語で書く（ADR-008）
     if (v.__type__ === 'JSFunction') return 'function';   // 呼び出し先のメソッド（ADR-003 追記）
     if (isClass(v) || isBuiltin(v)) return 'other';
-    if (isArray(v) || isList(v)) return 'sequence';   // ArrayList も配列のビューで見せる（ADR-007）
+    if (isSeq(v)) return 'sequence';   // ArrayList・HashSet も配列のビューで見せる（ADR-007・ADR-009）
+    if (isMap(v)) return 'mapping';    // HashMap は辞書として見せる（ADR-009）
+    if (isEntry(v)) return 'object';   // Map.Entry は key と value を持つオブジェクト
     if (isObject(v)) return 'object';
     return 'other';
   },
@@ -53,12 +70,16 @@ export const javaValueModel = {
     return literalOf(v);
   },
   entries(v) {
-    if (isArray(v) || isList(v)) return v.map((x, i) => [i, x]);
+    if (isSeq(v)) return v.map((x, i) => [i, x]);
+    if (isMap(v)) return v.entries.map(e => [keyText(e.key), e.value]);
+    if (isEntry(v)) return [['key', v.key], ['value', v.value]];
     if (isObject(v)) return Object.entries(v.fields);
     return [];
   },
   length(v) {
-    if (isArray(v) || isList(v)) return v.length;
+    if (isSeq(v)) return v.length;
+    if (isMap(v)) return v.entries.length;
+    if (isEntry(v)) return 2;
     if (isObject(v)) return Object.keys(v.fields).length;
     return 0;
   },
@@ -67,18 +88,26 @@ export const javaValueModel = {
   label(v) {
     if (v instanceof JString) return 'String';
     if (isList(v)) return `${listName(v)}(${v.length})`;   // ArrayList<Integer>(3)。配列の int[3] と書き分ける
+    if (isSet(v)) return `${setName(v)}(${v.length})`;
+    if (isMap(v)) return `${mapName(v)}(${v.entries.length})`;
+    if (isEntry(v)) return 'Map.Entry';
     if (isArray(v)) return `${v.__jelem ?? '?'}[${v.length}]`;
     if (isObject(v)) return v.cls.name;
     return 'Object';
   },
   shortLabel(v) {
     if (isList(v)) return listName(v);
+    if (isSet(v)) return setName(v);
+    if (isMap(v)) return mapName(v);
+    if (isEntry(v)) return 'Map.Entry';
     if (isArray(v)) return `${v.__jelem ?? '?'}[]`;
     if (isObject(v)) return v.cls.name;
     return 'Object';
   },
   brackets(v) {
-    if (isList(v)) return ['[', ']'];   // リストは toString と同じ [1, 2, 3]（配列の {1, 2, 3} と書き分ける。ADR-007）
+    if (isList(v) || isSet(v)) return ['[', ']'];   // リスト・集合は toString と同じ [1, 2, 3]（配列の {1, 2, 3} と書き分ける。ADR-007）
+    if (isMap(v)) return ['{', '}'];
+    if (isEntry(v)) return ['Entry{', '}'];
     if (isArray(v)) return ['{', '}'];   // Java の配列の初期化子の書き方
     if (isObject(v)) return [`${v.cls.name}{`, '}'];
     return ['{', '}'];

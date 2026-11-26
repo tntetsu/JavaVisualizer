@@ -73,9 +73,15 @@ export const isChar = (v) => v instanceof JChar;
 export const isBool = (v) => typeof v === 'boolean';
 export const isString = (v) => v instanceof JString;
 /** Java の配列（ArrayList などのリストは含まない） */
-export const isArray = (v) => Array.isArray(v) && v.__jlist === undefined;
+export const isArray = (v) => Array.isArray(v) && v.__jlist === undefined && v.__jset === undefined;
 /** ArrayList・List.of のリスト（JS の配列＋列挙されない印 __jlist。ADR-007） */
 export const isList = (v) => Array.isArray(v) && v.__jlist !== undefined;
+/** HashSet・TreeSet・LinkedHashSet・Set.of（JS の配列＋列挙されない印 __jset。中身は繰り返しの順。ADR-009） */
+export const isSet = (v) => Array.isArray(v) && v.__jset !== undefined;
+/** HashMap・TreeMap・LinkedHashMap・Map.of（{ __type__: 'JMap', kind, keyType, valType, entries }。ADR-009） */
+export const isMap = (v) => v !== null && typeof v === 'object' && v.__type__ === 'JMap';
+/** Map.Entry（{ __type__: 'JEntry', key, value }。ADR-009） */
+export const isEntry = (v) => v !== null && typeof v === 'object' && v.__type__ === 'JEntry';
 export const isObject = (v) => v !== null && typeof v === 'object' && v.__type__ === 'JObject';
 /** 数値の型（char を含む。boolean は含まない） */
 export const isNumeric = (v) => isInt(v) || isLong(v) || isDouble(v) || isChar(v);
@@ -118,6 +124,9 @@ export function typeName(v) {
   if (isBool(v)) return 'boolean';
   if (isString(v)) return 'String';
   if (isList(v)) return v.__jlistElem ? `ArrayList<${v.__jlistElem}>` : 'ArrayList';
+  if (isSet(v)) return v.__jsetElem ? `${v.__jset}<${v.__jsetElem}>` : v.__jset;
+  if (isMap(v)) return v.keyType ? `${v.kind}<${v.keyType},${v.valType}>` : v.kind;
+  if (isEntry(v)) return 'Entry';
   if (isArray(v)) return `${v.__jelem}[]`;
   if (isObject(v)) return v.cls.name;
   return typeof v;
@@ -151,7 +160,7 @@ export function javaCloneHook(v, clone, seen) {
     for (const k of Object.keys(v.fields)) c.fields[k] = clone(v.fields[k]);
     return c;
   }
-  if (!Array.isArray(v) || (v.__jelem === undefined && v.__jlist === undefined)) return undefined;
+  if (!Array.isArray(v) || (v.__jelem === undefined && v.__jlist === undefined && v.__jset === undefined)) return undefined;
   const c = [];
   seen.set(v, c);
   for (const x of v) c.push(clone(x));
@@ -159,6 +168,10 @@ export function javaCloneHook(v, clone, seen) {
   if (v.__jlist !== undefined) {
     Object.defineProperty(c, '__jlist', { value: v.__jlist, enumerable: false });
     Object.defineProperty(c, '__jlistElem', { value: v.__jlistElem, enumerable: false });
+  }
+  if (v.__jset !== undefined) {
+    Object.defineProperty(c, '__jset', { value: v.__jset, enumerable: false });
+    Object.defineProperty(c, '__jsetElem', { value: v.__jsetElem, enumerable: false });
   }
   return c;
 }

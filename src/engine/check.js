@@ -49,8 +49,19 @@ function constIntValue(n) {
  * 型 from の値を、型 to の変数に入れられるか（代入の変換。JLS 5.2）
  * @param {object} [node] 値の式（定数の縮小変換の判定に使う）
  */
-/** リストの型どうしの継承（ArrayList は List の下） */
-const LIST_SUPER = { ArrayList: ['List'], List: [] };
+/** コレクションの型どうしの継承（ArrayList は List・Collection の下。ADR-007・ADR-009） */
+const COLL_SUPER = {
+  ArrayList: ['List', 'Collection'], List: ['Collection'], Collection: [],
+  HashSet: ['Set', 'Collection'], LinkedHashSet: ['HashSet', 'Set', 'Collection'], TreeSet: ['Set', 'Collection'], Set: ['Collection'],
+  HashMap: ['Map'], LinkedHashMap: ['HashMap', 'Map'], TreeMap: ['Map'], Map: [], Entry: [],
+};
+const LIST_TYPES = new Set(['ArrayList', 'List']);
+const SET_TYPES = new Set(['HashSet', 'LinkedHashSet', 'TreeSet', 'Set', 'Collection']);
+const MAP_TYPES = new Set(['HashMap', 'LinkedHashMap', 'TreeMap', 'Map']);
+/** 拡張 for で繰り返せるコレクション（リスト・集合・values() の Collection） */
+/** javac のメッセージの、メソッドの持ち主の書き方（interface Map<K,V>・class HashSet<E>） */
+const ownerText = (base) => `${/^(Map|Set|Collection|List)$/.test(base) ? 'interface' : 'class'} ${base}<${MAP_TYPES.has(base) ? 'K,V' : 'E'}>`;
+const isIterableType = (t) => t !== null && (LIST_TYPES.has(baseType(t)) || SET_TYPES.has(baseType(t)));
 
 function assignable(from, to, classes, node) {
   if (from === null || to === null || to === 'var') return true;
@@ -73,14 +84,21 @@ function assignable(from, to, classes, node) {
   if (isArrayType(from) || isArrayType(to)) return from === to;
   // ジェネリクス：型の名前が継承の関係にあり、型引数が同じ（<> や型引数なしはどれとも合う）
   const fb = baseType(from), tb = baseType(to);
-  if (fb !== from || tb !== to || LIST_SUPER[fb]) {
-    if (!(fb === tb || (LIST_SUPER[fb] ?? []).includes(tb))) return false;
+  if (fb !== from || tb !== to || COLL_SUPER[fb]) {
+    if (!(fb === tb || (COLL_SUPER[fb] ?? []).includes(tb))) return false;
     const fa = typeArgs(from), ta = typeArgs(to);
     return fa.length === 0 || ta.length === 0 || fa.join(',') === ta.join(',');
   }
   // クラスの継承・インターフェースの実装（Comparable<Student> は Comparable として見る）
   const fc = classes.get(baseType(from)) ?? BUILTIN_CLASSES.get(baseType(from));
   return !!fc && isSubtypeName(fc, baseType(to));
+}
+
+/** Integer などの式 node を、プリミティブの型 to の値として取り出す所に印を付ける（null なら評価器が NullPointerException にする） */
+function markUnbox(node, from, to) {
+  if (node && BOXES[from] && isPrimitiveType(to)) {
+    Object.defineProperty(node, 'unboxFrom', { value: from, enumerable: false, configurable: true });
+  }
 }
 
 function incompatible(from, to, loc) {
@@ -121,6 +139,14 @@ const STATIC_RETURNS = {
   String: { valueOf: 'String', format: 'String', join: 'String' },
   Arrays: { toString: 'String', sort: 'void', fill: 'void' },
   List: { of: (args) => `List<${args.length && args.every(a => a === args[0]) && args[0] ? boxType(args[0]) : 'Object'}>` },
+  Set: { of: (args) => `Set<${args.length && args.every(a => a === args[0]) && args[0] ? boxType(args[0]) : 'Object'}>` },
+  Map: {
+    of: (args) => {
+      const same = (k) => { const ts = args.filter((_, i) => i % 2 === k); return ts.length && ts.every(a => a === ts[0]) && ts[0] ? boxType(ts[0]) : 'Object'; };
+      return `Map<${same(0)},${same(1)}>`;
+    },
+    entry: (args) => `Entry<${args[0] ? boxType(args[0]) : 'Object'},${args[1] ? boxType(args[1]) : 'Object'}>`,
+  },
   Collections: {
     sort: 'void', reverse: 'void', swap: 'void', frequency: 'int',
     max: (args) => (args[0] ? typeArgs(args[0])[0] ?? null : null),
@@ -159,7 +185,8 @@ const SCANNER_METHODS = {
 };
 
 /** java.util のクラス（import が要る） */
-const JAVA_UTIL = new Set(['Scanner', 'Arrays', 'ArrayList', 'List', 'Collections']);
+const JAVA_UTIL = new Set(['Scanner', 'Arrays', 'ArrayList', 'List', 'Collections', 'Collection',
+  'Map', 'HashMap', 'TreeMap', 'LinkedHashMap', 'Set', 'HashSet', 'TreeSet', 'LinkedHashSet']);
 
 /** import した java.util のクラスの名前（import java.util.*; はすべて） */
 function importedUtil(imports) {
@@ -470,10 +497,11 @@ export function check(ast, classes) {
     }
   }
 
-  /** new ArrayList<>() の <> を、代入先の型（List<Integer>）から決める（要素の型の印に使う） */
+  /** new ArrayList<>() の <> を、代入先の型（List<Integer>・Map<String,Integer>）から決める（要素の型の印に使う） */
   function inferDiamond(init, target) {
     if (init?.type === 'NewExpression' && init.genericType?.endsWith('<>') && target && typeArgs(target).length) {
       markType(init, 'elemType', typeArgs(target)[0]);
+      markType(init, 'typeArgs', typeArgs(target));
     }
   }
 
@@ -489,8 +517,10 @@ export function check(ast, classes) {
     const fieldCtx = { cls, isStatic: false, method: null };
     for (const f of cls.fields) {
       if (!f.init) continue;
+      inferDiamond(f.init, f.type);
       const t = expr(f.init, new Locals(), { ...fieldCtx, isStatic: f.static });
       if (!assignable(t, f.type, classes, f.init)) throw incompatible(t, f.type, f.init.loc);
+      markUnbox(f.init, t, f.type);
     }
     checkOverrides(cls);
     for (const m of [...cls.ctors, ...[...cls.methods.values()].flat()]) {
@@ -517,7 +547,7 @@ export function check(ast, classes) {
     }
     if (base === 'float') throw err('float はまだ対応していません（小数は double を使います）', loc, 'float is not supported yet');
     if (isPrimitiveType(base) || base === 'var' || base === 'void' || base === 'String' || base === 'Object') return;
-    if (base === 'Scanner' || base === 'ArrayList' || base === 'List') { needImport(base, loc); return; }
+    if (base === 'Scanner' || COLL_SUPER[base]) { needImport(base === 'Entry' ? 'Map' : base, loc); return; }
     if (base === 'StringBuilder') return;
     if (classes.has(base) || BUILTIN_CLASSES.has(base) || BOXES[base]) return;
     throw err(`型 ${base} が見つかりません（クラス名のつづりを確かめてください）`, loc, 'cannot find symbol');
@@ -554,6 +584,7 @@ export function check(ast, classes) {
 
   function cond(n, locals, ctx) {
     const t = expr(n, locals, ctx);
+    markUnbox(n, t, 'boolean');
     if (t !== null && t !== 'boolean' && t !== 'Boolean') {
       const hint = n.type === 'AssignmentExpression' && n.operator === '=' ? '（等しいかを調べるときは「=」ではなく「==」を使います）' : '';
       throw err(`条件には boolean（true か false）になる式を書きます${hint}`, n.loc, `incompatible types: ${t} cannot be converted to boolean`);
@@ -578,6 +609,7 @@ export function check(ast, classes) {
             const vt = expr(d.init, locals, ctx);
             if (t === 'var') t = vt;
             else if (!assignable(vt, t, classes, d.init)) throw incompatible(vt, t, d.init.loc);
+            markUnbox(d.init, vt, t);
           }
           locals.vars.set(d.id.name, t);
           if (s.kind === 'const') finals.add(d.id.name);
@@ -597,7 +629,10 @@ export function check(ast, classes) {
       }
       case 'ForOfStatement': {
         const ct = expr(s.right, locals, ctx);
-        const isListType = ct !== null && LIST_SUPER[baseType(ct)] !== undefined;
+        const isListType = isIterableType(ct);
+        if (ct !== null && MAP_TYPES.has(baseType(ct))) {
+          throw err('マップはそのままでは拡張 for 文で繰り返せません（keySet()・values()・entrySet() を使います）', s.right.loc, 'for-each not applicable to expression type');
+        }
         if (ct !== null && !isArrayType(ct) && !isListType) throw err('拡張 for 文（for (型 変数 : …)）で繰り返せるのは配列とリストだけです', s.right.loc, 'for-each not applicable to expression type');
         const inner = new Locals(locals);
         const et = ct === null ? null : isListType ? (typeArgs(ct)[0] ?? 'Object') : elemTypeOf(ct);
@@ -625,6 +660,7 @@ export function check(ast, classes) {
           throw err('void のメソッドからは値を返せません（return; だけを書きます）', s.argument.loc, 'incompatible types: unexpected return value');
         }
         if (!assignable(t, rt, classes, s.argument)) throw incompatible(t, rt, s.argument.loc);
+        markUnbox(s.argument, t, rt);
         return;
       }
       case 'ThrowStatement': requireHandled(expr(s.argument, locals, ctx), s.loc, ctx); return;
@@ -697,6 +733,73 @@ export function check(ast, classes) {
     return null;
   }
 
+  /** new HashMap<>(…)・new HashSet<>(…) の引数（なし・容量の int・同じ種類のコレクション。ADR-009） */
+  function checkCollectionCtor(n, name, argTypes) {
+    if (argTypes.length === 0) return;
+    const a = argTypes[0];
+    const isMapCls = MAP_TYPES.has(name);
+    const ok = argTypes.length === 1 && (a === null
+      || (name !== 'TreeMap' && name !== 'TreeSet' && widens(unboxType(a), 'int'))
+      || (isMapCls ? MAP_TYPES.has(baseType(a)) : isIterableType(a)));
+    if (!ok) throw err(`${name} を作るときに渡せるのは、${isMapCls ? 'マップ' : 'コレクション'}${name.startsWith('Tree') ? '' : 'か容量（int）'}だけです`, n.loc, `no suitable constructor found for ${name}(${argTypes.join(',')})`);
+  }
+
+  /** Map のメソッドの戻り値の型（キー・値の型も確かめる。ADR-009） */
+  function mapCallType(n, name, ot, argTypes, loc) {
+    const [K = 'Object', V = 'Object'] = typeArgs(ot);
+    const need = (i, T) => {
+      if (!assignable(argTypes[i], T, classes)) {
+        throw err(`マップ ${ot} の${i === 0 && name !== 'getOrDefault' ? 'キー' : '値'}に ${argTypes[i]} の値は使えません（キーは ${K}、値は ${V} です）`, n.loc,
+          `method ${name} in ${ownerText(baseType(ot))} cannot be applied to given types;`);
+      }
+    };
+    switch (name) {
+      case 'size': case 'hashCode': return 'int';
+      case 'isEmpty': case 'containsKey': case 'containsValue': case 'equals': return 'boolean';
+      case 'get': case 'remove': return V;
+      case 'getOrDefault': need(1, V); return V;
+      case 'put': case 'putIfAbsent': case 'replace': need(0, K); need(1, V); return V;
+      case 'clear': case 'putAll': return 'void';
+      case 'keySet': return `Set<${K}>`;
+      case 'values': return `Collection<${V}>`;
+      case 'entrySet': return `Set<Entry<${K},${V}>>`;
+      case 'toString': return 'String';
+      case 'firstKey': case 'lastKey': if (baseType(ot) === 'TreeMap') return K; break;
+    }
+    throw err(`マップ（${baseType(ot)}）に ${name}(…) はありません（まだ対応していないメソッドかもしれません）`, loc, 'cannot find symbol');
+  }
+
+  /** Set・Collection のメソッドの戻り値の型（ADR-009） */
+  function setCallType(n, name, ot, argTypes, loc) {
+    const E = typeArgs(ot)[0] ?? 'Object';
+    switch (name) {
+      case 'size': case 'hashCode': return 'int';
+      case 'isEmpty': case 'contains': case 'remove': case 'equals': case 'containsAll': case 'addAll': case 'removeAll': case 'retainAll': return 'boolean';
+      case 'add':
+        if (!assignable(argTypes[0], E, classes)) {
+          throw err(`${E} の集合に ${argTypes[0]} の値は入れられません`, n.loc, `method add in ${ownerText(baseType(ot))} cannot be applied to given types;`);
+        }
+        return 'boolean';
+      case 'clear': return 'void';
+      case 'toString': return 'String';
+      case 'first': case 'last': if (baseType(ot) === 'TreeSet') return E; break;
+    }
+    throw err(`${baseType(ot)} に ${name}(…) はありません（まだ対応していないメソッドかもしれません）`, loc, 'cannot find symbol');
+  }
+
+  /** Map.Entry のメソッドの戻り値の型（ADR-009） */
+  function entryCallType(name, ot, argTypes, loc) {
+    const [K = 'Object', V = 'Object'] = typeArgs(ot);
+    switch (name) {
+      case 'getKey': return K;
+      case 'getValue': case 'setValue': return V;
+      case 'toString': return 'String';
+      case 'equals': return 'boolean';
+      case 'hashCode': return 'int';
+    }
+    throw err(`Map.Entry に ${name}(…) はありません`, loc, 'cannot find symbol');
+  }
+
   /** ArrayList・List のメソッドの戻り値の型（引数の型も確かめる。ADR-007） */
   function listCallType(n, name, ot, argTypes, loc) {
     markType(n, 'argTypes', argTypes);   // remove(int) と remove(Object) の区別に使う
@@ -753,6 +856,7 @@ export function check(ast, classes) {
       }
       const m = mostSpecific(ok, argTypes);
       markSignature(n, m);
+      m.paramTypes.forEach((p, i) => markUnbox(n.arguments[i], argTypes[i], p));
       for (const t of m.throws ?? []) requireHandled(t, n.loc, ctx);
       return m.returnType;
     };
@@ -781,7 +885,10 @@ export function check(ast, classes) {
       return SCANNER_METHODS[name];
     }
     if (ot === 'String') return STRING_METHODS[name] ?? null;
-    if (LIST_SUPER[baseType(ot)] !== undefined) return listCallType(n, name, ot, argTypes, c.loc);
+    if (LIST_TYPES.has(baseType(ot))) return listCallType(n, name, ot, argTypes, c.loc);
+    if (SET_TYPES.has(baseType(ot))) return setCallType(n, name, ot, argTypes, c.loc);
+    if (MAP_TYPES.has(baseType(ot))) return mapCallType(n, name, ot, argTypes, c.loc);
+    if (baseType(ot) === 'Entry') return entryCallType(name, ot, argTypes, c.loc);
     if (ot === 'StringBuilder') {
       if (!(name in SB_METHODS)) throw err(`StringBuilder に ${name}(…) はありません（まだ対応していないメソッドかもしれません）`, c.loc, 'cannot find symbol');
       return SB_METHODS[name];
@@ -815,6 +922,8 @@ export function check(ast, classes) {
         const both = BOXES[a0] && BOXES[b0];
         const a = (op === '==' || op === '!=') && both ? a0 : unboxType(a0), b = (op === '==' || op === '!=') && both ? b0 : unboxType(b0);
         if ((op === '==' || op === '!=') && both) markType(n, 'boxedCompare', a0);
+        // 片方が文字列の + は toString なので取り出さない。それ以外のラッパー型は取り出して計算する
+        if (!both && !(op === '+' && (a0 === 'String' || b0 === 'String'))) { markUnbox(n.left, a0, a); markUnbox(n.right, b0, b); }
         if (['==', '!=', '<', '>', '<=', '>='].includes(op)) {
           if (op !== '==' && op !== '!=' && a !== null && b !== null && (!isNumericType(a) || !isNumericType(b))) {
             throw err(`「${op}」で比べられるのは数どうしだけです（${a} と ${b}）`, n.loc, `bad operand types for binary operator '${op}'`);
@@ -831,7 +940,9 @@ export function check(ast, classes) {
       }
       case 'LogicalExpression': cond(n.left, locals, ctx); cond(n.right, locals, ctx); return 'boolean';
       case 'UnaryExpression': {
-        const t = unboxType(expr(n.argument, locals, ctx));
+        const t0 = expr(n.argument, locals, ctx);
+        const t = unboxType(t0);
+        markUnbox(n.argument, t0, t);
         if (n.operator === '!') { if (t !== null && t !== 'boolean') throw err('「!」は boolean の値に使います', n.loc, `bad operand type ${t} for unary operator '!'`); return 'boolean'; }
         return t === null ? null : promote(t, 'int');
       }
@@ -844,8 +955,11 @@ export function check(ast, classes) {
       case 'AssignmentExpression': {
         const lt = expr(n.left, locals, ctx);
         requireAssignable(n.left, locals, ctx);
+        if (n.operator === '=') inferDiamond(n.right, lt);
         const rt = expr(n.right, locals, ctx);
         if (n.operator === '=' && !assignable(rt, lt, classes, n.right)) throw incompatible(rt, lt, n.right.loc);
+        if (n.operator === '=') markUnbox(n.right, rt, lt);
+        else if (lt !== 'String') markUnbox(n.right, rt, 'int');
         return lt;
       }
       case 'ConditionalExpression': {
@@ -893,7 +1007,8 @@ export function check(ast, classes) {
           if (name === 'length') return 'int';
           throw err(`配列に ${name} はありません（長さは length）`, n.loc, 'cannot find symbol');
         }
-        if (LIST_SUPER[baseType(ot)] !== undefined) {
+        if (COLL_SUPER[baseType(ot)] !== undefined) {
+          if (!LIST_TYPES.has(baseType(ot))) throw err(`${baseType(ot)} に ${name} はありません${name === 'length' ? '（要素の数は size() で調べます）' : ''}`, n.loc, 'cannot find symbol');
           throw err(`リストに ${name} はありません${name === 'length' ? '（リストの長さは size() で調べます）' : ''}`, n.loc, 'cannot find symbol');
         }
         if (ot.startsWith('builtin:')) return STATIC_FIELDS[ot.slice(8)]?.[name] ?? null;
@@ -926,6 +1041,16 @@ export function check(ast, classes) {
           return n.genericType ?? 'ArrayList';
         }
         if (name === 'StringBuilder' && !classes.has(name)) return 'StringBuilder';
+        // HashMap・HashSet など（ADR-009）。型引数（<> は代入先から決めた印）を、評価器が表示（HashMap<String, Integer>）に使う
+        if ((MAP_TYPES.has(name) || SET_TYPES.has(name)) && !classes.has(name)) {
+          if (name === 'Map' || name === 'Set' || name === 'Collection') {
+            throw err(`インターフェース ${name} は new で作れません（Hash${name === 'Collection' ? 'Set' : name} などを new します）`, n.loc, `${name} is abstract; cannot be instantiated`);
+          }
+          const ta = typeArgs(n.genericType ?? '');
+          if (ta.length) markType(n, 'typeArgs', ta);
+          checkCollectionCtor(n, name, argTypes);
+          return n.genericType ?? name;
+        }
         const cls = classes.get(name);
         if (cls?.kind === 'enum') throw err(`enum の ${name} は new で作れません（定数を使います）`, n.loc, 'enum classes may not be instantiated');
         if (cls?.abstract) {
@@ -960,6 +1085,7 @@ export function check(ast, classes) {
         for (const e of n.elements) {
           const t = expr(e, locals, ctx);
           if (!assignable(t, n.elemType, classes, e)) throw incompatible(t, n.elemType, e.loc);
+          markUnbox(e, t, n.elemType);
         }
         return `${n.elemType}[]`;
       case 'CastExpression': {

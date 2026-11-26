@@ -60,7 +60,10 @@ node scripts/build.mjs --serve   # http://127.0.0.1:8124/
 ## Tests
 
 ```bash
-npm test   # requires Node 22+ and Java (JDK 21); about one minute
+npm test           # requires Node 22+ and Java (JDK 21); about two minutes
+npm run coverage   # the same tests, measuring which lines and branches of src/ are run
+npm run coverage:check   # lists lines no test runs that have no reason recorded in tests/coverage-allowlist.json
+npm run test:dom   # screen regression test: compares every view of every sample between the last commit and the working tree (about five minutes)
 ```
 
 | Test | What it checks |
@@ -71,6 +74,7 @@ npm test   # requires Node 22+ and Java (JDK 21); about one minute
 | `tests/npe.test.js` | Detailed `NullPointerException` messages against real Java compiled with `-g` |
 | `tests/messages-en.test.js` | No Japanese left in English error messages |
 | `tests/adr-examples.test.js` | User-visible examples from the design decisions (ADRs) |
+| `scripts/capture-dom.mjs` (`npm run test:dom`) | The screen (view HTML, code display, step display) does not change between before and after a change. Coordinates of arrows and diagrams, which depend on fonts, are ignored |
 
 ## License
 

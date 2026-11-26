@@ -191,7 +191,7 @@ export function callStringBuilderMethod(sb, name, args, ctx) {
       return set(s.slice(0, a0) + s.slice(a0 + 1));
     case 'delete': {
       const end = Math.min(args[1], s.length);
-      if (a0 < 0 || a0 > end) throw sioobe(`start ${a0}, end ${args[1]}, length ${s.length}`);
+      if (a0 < 0 || a0 > end) throw sioobe(`Range [${a0}, ${end}) out of bounds for length ${s.length}`);   // JDK 21 と同じ文面
       return set(s.slice(0, a0) + s.slice(end));
     }
     case 'indexOf': return s.indexOf(a0.s);

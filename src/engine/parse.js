@@ -522,7 +522,8 @@ export function parse(src) {
    */
   function qualifiedClass(n) {
     if (n.name !== 'FieldAccess' && n.name !== 'ScopedTypeName') return null;
-    const m = text(n).replace(/\s+/g, '').match(/^java\.(lang|util|io)\.([A-Z]\w*)$/);
+    // java.util.function.Function・java.util.stream.Collectors も（ADR-010・011）
+    const m = text(n).replace(/\s+/g, '').match(/^java\.(lang|util|io|util\.function|util\.stream)\.([A-Z]\w*)$/);
     if (!m) return null;
     qualifiedImports.push(`import java.${m[1]}.${m[2]};`);
     return mk('Identifier', n, { name: m[2], qualified: true });

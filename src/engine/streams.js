@@ -262,6 +262,12 @@ export function createStreamBuiltins() {
       of: (args) => ints(args.length === 1 && Array.isArray(args[0]) ? args[0] : args),
       iterate: ([seed, f], ctx) => makeStream('IntStream', function* () { let x = seed; for (;;) { yield x; x = asKind('IntStream', ctx.call(f, [x], 'applyAsInt')); } }),
     }, 'java.util.stream')],
+    // Optional.of(値)・Optional.ofNullable(値)・Optional.empty()
+    ['Optional', new JBuiltin('Optional', {
+      of: ([v]) => { nn(v); return makeOptional('Optional', true, v); },
+      ofNullable: ([v]) => makeOptional('Optional', v !== null, v),
+      empty: () => makeOptional('Optional', false, null),
+    }, 'java.util')],
     ['Collectors', new JBuiltin('Collectors', {
       toList: () => collector('toList'),
       toSet: () => collector('toSet'),

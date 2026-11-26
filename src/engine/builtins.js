@@ -84,7 +84,20 @@ function boxedName(v) {
   if (isChar(v)) return 'java.lang.Character';
   if (isBool(v)) return 'java.lang.Boolean';
   if (isString(v)) return 'java.lang.String';
+  // printf("%d", オブジェクト) の例外の文面（本物の getClass().getName()：Main$Point・[I・java.util.ArrayList）
+  if (isArray(v)) return arrayName(v.__jelem);
+  if (v && v.__type__ === 'JObject') return v.cls.pkg ? `${v.cls.pkg}.${v.cls.name}` : v.cls.outer ? `${v.cls.outer}$${v.cls.name}` : v.cls.name;
+  if (Array.isArray(v) && v.__jlist === 'ArrayList') return 'java.util.ArrayList';
+  if (v && v.__type__ === 'JMap') return `java.util.${v.kind}`;
+  if (Array.isArray(v) && v.__jset) return `java.util.${v.__jset}`;
   return 'java.lang.Object';
+}
+
+/** 配列のクラスの名前（int[] → [I、String[] → [Ljava.lang.String;） */
+function arrayName(elem) {
+  const P = { int: 'I', long: 'J', double: 'D', char: 'C', boolean: 'Z', short: 'S', byte: 'B', float: 'F' };
+  if (elem?.endsWith('[]')) return `[${arrayName(elem.slice(0, -2))}`;
+  return P[elem] ? `[${P[elem]}` : `[L${elem === 'String' || elem === 'Object' ? `java.lang.${elem}` : elem};`;
 }
 
 /**
@@ -93,7 +106,25 @@ function boxedName(v) {
  */
 export function javaFormat(fmt, args, ctx) {
   let ai = 0;
-  return fmt.replace(/%(\d+\$)?([-#+ 0,(]*)(\d+)?(\.\d+)?([a-zA-Z%])/g, (spec, idx, flags, width, precS, conv) => {
+  const SPEC = /%(\d+\$)?([-#+ 0,(]*)(\d+)?(\.\d+)?([a-zA-Z%])/g;
+  // 本物の Formatter と同じく、はじめに書式の全体を読んで、知らない変換（%q）があれば何も書かずに例外にする
+  for (const m of fmt.matchAll(SPEC)) {
+    if (!'dxXofeEsScbBn%'.includes(m[5])) throw new JavaError('UnknownFormatConversionException', `Conversion = '${m[5]}'`);
+  }
+  // 前から順に書き、型の合わない所で例外にする。そこまでに書いた文字は e.partial に持たせる（printf はそれを書き出してから投げる）
+  let out = '', last = 0;
+  try {
+    for (const m of fmt.matchAll(SPEC)) {
+      out += fmt.slice(last, m.index) + formatSpec(...m);
+      last = m.index + m[0].length;
+    }
+  } catch (e) {
+    if (e instanceof JavaError) e.partial = out + fmt.slice(last, fmt.slice(last).search(/%/) + last);
+    throw e;
+  }
+  return out + fmt.slice(last);
+
+  function formatSpec(spec, idx, flags, width, precS, conv) {
     if (conv === 'n') return '\n';
     if (conv === '%') return pad('%', flags, width);
     let arg;
@@ -150,7 +181,7 @@ export function javaFormat(fmt, args, ctx) {
       }
     }
     throw new JavaError('UnknownFormatConversionException', `Conversion = '${conv}'`);
-  });
+  }
 }
 
 function pad(s, flags, width) {
@@ -277,14 +308,19 @@ export function callStringMethod(str, name, args, ctx) {
 
 const ddd = (f) => (args) => makeDouble(f(...args.map(num)));
 
-/** Math.round(double)：floor(x + 0.5)（long を返す） */
+/**
+ * Math.round：double は round(double)（floor(x + 0.5)。long を返す）。int・long・char は、本物と同じく round(float) が選ばれ、
+ * float に変換してから丸めて int を返す（16777217 は 16777216 に、int の範囲の外は端の値になる）
+ */
 function mathRound(v) {
   if (isDouble(v)) {
     const x = v.v;
     if (Number.isNaN(x)) return 0n;
     return BigInt(Math.floor(x + 0.5));
   }
-  return BigInt(num(v));
+  const f = Math.fround(num(v));
+  const r = Math.floor(Math.fround(f + 0.5));
+  return r >= 2147483647 ? 2147483647 : r <= -2147483648 ? -2147483648 : r;
 }
 
 /** Math.floorDiv・floorMod（負の数の方向に切り捨てる割り算とその余り。int か long） */
@@ -339,7 +375,17 @@ export function createBuiltins() {
   const out = new JBuiltin('PrintStream', {
     println: (args, ctx) => { ctx.write((args.length ? ctx.str(printArg(args[0])) : '') + '\n'); },
     print: (args, ctx) => { ctx.write(ctx.str(printArg(args[0]))); },
-    printf: (args, ctx) => { ctx.write(javaFormat(args[0].s, args.slice(1), ctx)); return null; },
+    printf: (args, ctx) => {
+      let text;
+      try {
+        text = javaFormat(args[0].s, args.slice(1), ctx);
+      } catch (e) {
+        if (e.partial) ctx.write(e.partial);   // 本物は、例外の前までの文字を書き出している
+        throw e;
+      }
+      ctx.write(text);
+      return null;
+    },
   }, 'java.io');
   return new Map([
     ['System', new JBuiltin('System', { out, in: new JBuiltin('InputStream', {}, 'java.io') })],

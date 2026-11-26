@@ -67,7 +67,8 @@ for (const [body, line, text] of SYNTAX) {
 }
 
 const UNSUPPORTED = [
-  ['        Object o = new Object() { };', '匿名クラス'],   // ラムダ式は Phase 5 で対応した（ADR-010）
+  ['        Object o = new Object() { };', '匿名クラス'],
+  ['        synchronized (args) { }', '文「synchronized (args) 」'],   // 文の受け皿（知らない種類の文）   // ラムダ式は Phase 5 で対応した（ADR-010）
   ['        float f = 1;', null],   // float は検査（check.js）で「まだ対応していません」
 ];
 
@@ -75,7 +76,7 @@ for (const [body, what] of UNSUPPORTED.filter(([, w]) => w)) {
   test(`まだ対応していない構文は、そう分かるメッセージにする：${what}`, () => {
     const e = syntaxError(wrap(body));
     assert.ok(e);
-    assert.match(e.message, new RegExp(`${what} はまだ対応していません`));
+    assert.ok(e.message.includes(`${what} はまだ対応していません`), e.message);
   });
 }
 

@@ -60,7 +60,10 @@ node scripts/build.mjs --serve   # http://127.0.0.1:8124/
 ## テスト
 
 ```bash
-npm test   # Node 22 以降と Java（JDK 21）が必要。約 1 分
+npm test           # Node 22 以降と Java（JDK 21）が必要。約 2 分
+npm run coverage   # 同じテストを、src/ のどの行・分岐が通ったかの計測つきで流す
+npm run coverage:check   # テストが通っていない行のうち、理由（tests/coverage-allowlist.json）のないものを一覧にする
+npm run test:dom   # 画面の回帰テスト：最後のコミットと今の作業中のソースで、全サンプル × 全タブの表示を比べる（約 5 分）
 ```
 
 | テスト | 内容 |
@@ -71,6 +74,7 @@ npm test   # Node 22 以降と Java（JDK 21）が必要。約 1 分
 | `tests/npe.test.js` | `NullPointerException` の詳しいメッセージを、`-g` 付きでコンパイルした本物と比べる |
 | `tests/messages-en.test.js` | エラーメッセージの英語表示に日本語が残らないこと |
 | `tests/adr-examples.test.js` | 設計の決定（ADR）の、利用者に見える例 |
+| `scripts/capture-dom.mjs`（`npm run test:dom`） | 画面の表示（ビューの HTML・コード表示・ステップの表示）が、変更の前後で変わっていないこと。矢印・図の座標（フォントで変わる）は除いて比べる |
 
 ## ドキュメント
 

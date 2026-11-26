@@ -1,0 +1,260 @@
+{
+  "src/engine/builtins.js": [
+    {
+      "code": "return 'java.lang.Object';",
+      "why": "printf(\"%d\", …) に、上の行のどれでもない値（ラムダ式・ストリームなど）を渡したときの名前。授業の範囲では出ない"
+    },
+    {
+      "code": "throw new JavaError('UnknownFormatConversionException', `Conversion = '${conv}'`);",
+      "why": "javaFormat のはじめに書式の全体を調べて、知らない変換はそこで例外にするので、ここには来ない（守りの行）"
+    },
+    {
+      "code": "return undefined;",
+      "why": "メソッドが見つからないとき undefined を返す受け皿。知らないメソッドは静的な検査が先にコンパイルエラーにする"
+    }
+  ],
+  "src/engine/check.js": [
+    {
+      "code": "return null;",
+      "why": "知らない種類の式の型（null＝分からない）。パーサーが作る式の種類は、上の case ですべて扱っている（守りの行）"
+    }
+  ],
+  "src/engine/collections.js": [
+    {
+      "code": "return undefined;",
+      "why": "メソッドが見つからないとき undefined を返す受け皿。知らないメソッドは静的な検査が先にコンパイルエラーにする"
+    },
+    {
+      "code": "return undefined;",
+      "nth": 1,
+      "why": "メソッドが見つからないとき undefined を返す受け皿。知らないメソッドは静的な検査が先にコンパイルエラーにする"
+    },
+    {
+      "code": "return false;",
+      "why": "ラッパー型の equals の受け皿。受け手は Integer・Long・Double・Character・Boolean のどれかなので来ない（守りの行）"
+    },
+    {
+      "code": "return undefined;",
+      "nth": 2,
+      "why": "メソッドが見つからないとき undefined を返す受け皿。知らないメソッドは静的な検査が先にコンパイルエラーにする"
+    }
+  ],
+  "src/engine/interpreter.js": [
+    {
+      "code": "return null;",
+      "why": "NullPointerException の説明の受け皿：null になりうる名前は、ローカル変数・フィールド・static フィールドのどれかで、上で扱っている（守りの行）"
+    },
+    {
+      "code": "return null;",
+      "nth": 1,
+      "why": "NullPointerException の「何をしようとしたか」の日本語の受け皿：評価器が作る action（Cannot read field … など）は上ですべて扱っている（守りの行）"
+    },
+    {
+      "code": "if (isClass(o)) return `class ${o.name}`;",
+      "why": "クラスそのものを文字列にする所。クラスリテラル（X.class）に対応していないので来ない"
+    },
+    {
+      "code": "return String(o);",
+      "why": "文字列にする値の種類の受け皿。Java の値の種類は上ですべて扱っている（守りの行）"
+    },
+    {
+      "code": "return { cls: null, thisObj: null, method: null };",
+      "why": "スコープの ctx の受け皿。実行はいつもメソッドのスコープの中で行うので来ない（守りの行）"
+    },
+    {
+      "code": "if (BUILTIN_CLASSES.has(name)) return BUILTIN_CLASSES.get(name);",
+      "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "throw compileError(`「${name}」という変数は宣言されていません`, loc, 'cannot find symbol');",
+      "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "throw compileError('ここには代入できません', node.loc, 'unexpected type');",
+      "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "return -1;",
+      "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "const types = args.map(typeName).join(',');",
+      "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "throw compileError(`${name}(${types}) に当てはまるメソッド（引数の数と型）がありません`, loc, `method ${name} cannot be applied to given types;`);",
+      "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "throw compileError(`演算子「${op}」は ${typeName(a)} と ${typeName(b)} の組み合わせには使えません`, loc, `bad operand types for binary operator '${op}'`);",
+      "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "throw compileError(`演算子「${op}」は ${typeName(a)} と ${typeName(b)} の組み合わせには使えません`, loc, `bad operand types for binary operator '${op}'`);",
+      "nth": 1,
+      "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "break;",
+      "why": "単項の演算子の受け皿（数でない値への -・+・~）。静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "break;",
+      "nth": 1,
+      "why": "単項の演算子の受け皿（数でない値への -・+・~）。静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "break;",
+      "nth": 2,
+      "why": "単項の演算子の受け皿（数でない値への -・+・~）。静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "throw compileError(`演算子「${op}」は ${typeName(v)} には使えません`, loc, `bad operand type ${typeName(v)} for unary operator '${op}'`);",
+      "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "throw compileError(`変数 ${name} はすでに宣言されています`, decl.loc, `variable ${name} is already defined in method`);",
+      "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "throw new Error(`unknown literal ${node.jtype}`);",
+      "why": "パーサーが作らないリテラルの種類（守りの行）"
+    },
+    {
+      "code": "throw compileError(`${typeName(obj)} にフィールド ${name} はありません`, node.loc, 'cannot find symbol');",
+      "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "throw compileError(`${node.type} はまだ対応していません`, node.loc, `${node.type} is not supported yet`);",
+      "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "throw compileError(`${typeName(obj)} の値に ${name}(…) はありません`, callee.loc, 'cannot find symbol');",
+      "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    },
+    {
+      "code": "throw compileError(`クラス ${obj.cls.name} にメソッド ${name} はありません`, loc, 'cannot find symbol');",
+      "why": "静的な検査（check.js）が先にコンパイルエラーにするので、実行時には来ない（守りの行）"
+    }
+  ],
+  "src/engine/maps.js": [
+    {
+      "code": "return undefined;",
+      "why": "メソッドが見つからないとき undefined を返す受け皿。知らないメソッドは静的な検査が先にコンパイルエラーにする"
+    },
+    {
+      "code": "return undefined;",
+      "nth": 1,
+      "why": "メソッドが見つからないとき undefined を返す受け皿。知らないメソッドは静的な検査が先にコンパイルエラーにする"
+    },
+    {
+      "code": "return undefined;",
+      "nth": 2,
+      "why": "メソッドが見つからないとき undefined を返す受け皿。知らないメソッドは静的な検査が先にコンパイルエラーにする"
+    }
+  ],
+  "src/engine/messages-en.js": [
+    {
+      "code": "return what;   // Lezer のノード名（英語）など",
+      "why": "「まだ対応していません」の名前の英語化の受け皿。日本語の名前はすべて表にある（tests/messages-en.test.js が調べる）ので、ここに来るのは表にない Lezer のノード名だけ"
+    }
+  ],
+  "src/engine/parse.js": [
+    {
+      "code": "return unsupported(`型「${text(n)}」`, n);",
+      "why": "型の書き方の受け皿。入門の範囲の型の書き方は上ですべて扱っていて、届く書き方が見つかっていない"
+    },
+    {
+      "code": "return unsupported(`式「${text(n).slice(0, 20)}」`, n);",
+      "why": "式の書き方の受け皿。@lezer/java が作る式の種類は上ですべて扱っていて、届く書き方が見つかっていない"
+    }
+  ],
+  "src/engine/streams.js": [
+    {
+      "code": "return undefined;",
+      "why": "メソッドが見つからないとき undefined を返す受け皿。知らないメソッドは静的な検査が先にコンパイルエラーにする"
+    },
+    {
+      "code": "throw new JavaError('UnsupportedOperationException', null);",
+      "why": "知らない Collector の受け皿。Collectors のメソッドは静的な検査が先に調べる（守りの行）"
+    },
+    {
+      "code": "return undefined;",
+      "nth": 1,
+      "why": "メソッドが見つからないとき undefined を返す受け皿。知らないメソッドは静的な検査が先にコンパイルエラーにする"
+    }
+  ],
+  "src/engine/values.js": [
+    {
+      "code": "return NaN;",
+      "why": "数でない値を数にする受け皿（画面の色分け用）。数の値にしか使わない（守りの行）"
+    },
+    {
+      "code": "if (isList(v)) return v.__jlistElem ? `ArrayList<${v.__jlistElem}>` : 'ArrayList';",
+      "why": "実行時の型の名前（メッセージ用）。これを使うのは、静的な検査が先に止める実行時のエラーだけなので来ない（守りの行）"
+    },
+    {
+      "code": "if (isSet(v)) return v.__jsetElem ? `${v.__jset}<${v.__jsetElem}>` : v.__jset;",
+      "why": "実行時の型の名前（メッセージ用）。これを使うのは、静的な検査が先に止める実行時のエラーだけなので来ない（守りの行）"
+    },
+    {
+      "code": "if (isMap(v)) return v.keyType ? `${v.kind}<${v.keyType},${v.valType}>` : v.kind;",
+      "why": "実行時の型の名前（メッセージ用）。これを使うのは、静的な検査が先に止める実行時のエラーだけなので来ない（守りの行）"
+    },
+    {
+      "code": "if (isEntry(v)) return 'Entry';",
+      "why": "実行時の型の名前（メッセージ用）。これを使うのは、静的な検査が先に止める実行時のエラーだけなので来ない（守りの行）"
+    },
+    {
+      "code": "if (isLambda(v)) return 'lambda';",
+      "why": "実行時の型の名前（メッセージ用）。これを使うのは、静的な検査が先に止める実行時のエラーだけなので来ない（守りの行）"
+    },
+    {
+      "code": "if (isArray(v)) return `${v.__jelem}[]`;",
+      "why": "実行時の型の名前（メッセージ用）。これを使うのは、静的な検査が先に止める実行時のエラーだけなので来ない（守りの行）"
+    },
+    {
+      "code": "if (isObject(v)) return v.cls.name;",
+      "why": "実行時の型の名前（メッセージ用）。これを使うのは、静的な検査が先に止める実行時のエラーだけなので来ない（守りの行）"
+    },
+    {
+      "code": "return typeof v;",
+      "why": "実行時の型の名前の受け皿（守りの行）"
+    },
+    {
+      "code": "return v;",
+      "why": "int への変換の受け皿。数でない値は静的な検査が先に止める（守りの行）"
+    },
+    {
+      "code": "return String(v);",
+      "why": "文字列にする値の種類の受け皿（守りの行）"
+    }
+  ],
+  "src/lang/java.js": [
+    {
+      "code": "return 'other';",
+      "why": "画面の値の見せ方の受け皿（オブジェクトでない値の要素・見出し）。ビューは、配列・リスト・マップ・オブジェクトにだけこれを尋ねる（守りの行）"
+    },
+    {
+      "code": "return [];",
+      "why": "画面の値の見せ方の受け皿（オブジェクトでない値の要素・見出し）。ビューは、配列・リスト・マップ・オブジェクトにだけこれを尋ねる（守りの行）"
+    },
+    {
+      "code": "return 0;",
+      "why": "画面の値の見せ方の受け皿（オブジェクトでない値の要素・見出し）。ビューは、配列・リスト・マップ・オブジェクトにだけこれを尋ねる（守りの行）"
+    },
+    {
+      "code": "return 'Object';",
+      "why": "画面の値の見せ方の受け皿（オブジェクトでない値の要素・見出し）。ビューは、配列・リスト・マップ・オブジェクトにだけこれを尋ねる（守りの行）"
+    },
+    {
+      "code": "return 'Object';",
+      "nth": 1,
+      "why": "画面の値の見せ方の受け皿（オブジェクトでない値の要素・見出し）。ビューは、配列・リスト・マップ・オブジェクトにだけこれを尋ねる（守りの行）"
+    },
+    {
+      "code": "return ['{', '}'];",
+      "why": "画面の値の見せ方の受け皿（オブジェクトでない値の要素・見出し）。ビューは、配列・リスト・マップ・オブジェクトにだけこれを尋ねる（守りの行）"
+    }
+  ]
+}

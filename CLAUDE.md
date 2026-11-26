@@ -91,7 +91,10 @@ PyVisualizer で分かったこと（同じ失敗を避ける）：
 
 ```bash
 npm install                     # 兄弟ディレクトリに ../JSInterpreter-core・../JSVisualizer-multilang が必要（file: 依存）
-npm test                        # 全テスト（本物の Java との比較に java が必要。約 50 秒）
+npm test                        # 全テスト（本物の Java との比較に java が必要。約 2 分）
+npm run coverage                # 同じテストを、src/ の行・分岐の網羅率の計測つきで（Node 組み込み。表はテストの出力の最後）
+npm run coverage:check          # カバレッジの抜けの確認：テストが通っていない行のうち、理由（tests/coverage-allowlist.json）のないものを一覧にする
+npm run test:dom                # 画面の回帰テスト：HEAD（--base で変更可）と作業中のソースで、全サンプル × 5 位置 × 全タブの表示を比べる（約 5 分）
 node scripts/build.mjs --serve  # ビルドして http://127.0.0.1:8124/ で確認（PyVisualizer は 8123）
 node scripts/run.mjs Main.java  # エンジンだけで実行（出力と例外を表示）
 java Main.java                  # 本物の Java で実行（比較の正解）
@@ -121,6 +124,13 @@ Java で分かったこと（Phase 5 で足したもの）：
 - ラムダ式の本体は `lambda` という名前のフレームで実行し、とらえた外側の変数を作ったときに写す（本物と同じ）。`forEach` などがラムダ式を呼ぶ 1 回を `LambdaCall`、式だけの本体を `LambdaBody` のイベントにして、「人」のステップが各回に止まるようにした（共通コアの「呼び出しの直後のノードが本体の始まり」の判定のため。ADR-010）。変数の状態の比較では、ラムダ式のフレームは比べない
 - ストリームは JS のジェネレーターをつないだ遅延評価（`src/engine/streams.js`）。要素ごとに filter → map と進む順序を本物と同じにしている。`map(x -> …)` の結果の型は、静的な検査がラムダ式の本体の型（`bodyType`）から決める。メソッドの呼び出しの検査は、受け手の型を引数より先に求める（`collect(Collectors.groupingBy(s -> …))` の `s` の型のため。ADR-011）
 - 入れ子のクラス（`static class Point`）の値は、変数の状態の比較では JDI と同じく `Main$Point{…}` と書く
+- 画面（言語プロファイル・評価器のトレースの形）を変えたら、コミットの前に `npm run test:dom` を流し、出た違いが意図どおりかを読む。違いがなければ「表示は変わっていない」と言える。基準のファイルは置かない（全サンプルで 35 MB になるため。変更前は git worktree に HEAD をビルドして並べる）。矢印・図の座標と px の値は、フォントで変わるので取り除いて比べる（字間をわざと変える `--perturb` で、取り除けることを確かめた）
+- **カバレッジの抜けの確認（ルーチン）**：`src/` を変えたら、コミットの前に `npm run coverage:check` を流す（`npm test` と同じテストを網羅率の計測つきで流す。約 2 分）。テストが通っていない行のうち、`tests/coverage-allowlist.json` に理由のないものが出たら、次の順で片づける：
+  1. 届く行なら、テストを足す。本物の Java と比べられるもの → `tests/cases/*.java`（出力・例外・変数の状態）か `tests/compile-errors/*.java`。比べられないもの（ハッシュ値の形・`Math.random()`・画面への見せ方）→ `tests/value-model.test.js` などに、決めた形をテストにする
+  2. 届かない行（静的な検査が先に止める守りの行など）なら、`tests/coverage-allowlist.json` に理由（why）を書いて登録する。登録は行の中身で照らし合わせ（行番号は使わない）、通るようになった登録は「古い登録」と出るので外す
+  - テストを足すと、本物との食い違いが見つかることが多い（2026-11-26 には `StringBuilder.delete` のメッセージ、`printf` の途中までの出力、`Math.round(int)` の型など 9 件）。その場合は直して、報告する
+  - 2026-11-26 時点：行 99.0%・分岐 89.8%、通っていない 57 行はすべて理由つきで登録済み
+  - CI（push のたびのテスト）も `npm run coverage:check` で流すので、理由のない行が残っていると push の時点で失敗する
 - テスト：`npm test` は約 1 分半（410 件ほど）。`tests/cases/*.java`（同じ名前の `.stdin` は入力）・`tests/compile-errors/*.java` に足すと、本物の Java との比較に自動で入る
 
 Java で分かったこと：

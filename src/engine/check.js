@@ -201,7 +201,8 @@ const STATIC_RETURNS = {
   Math: {
     sqrt: 'double', pow: 'double', cbrt: 'double', floor: 'double', ceil: 'double', sin: 'double', cos: 'double',
     tan: 'double', log: 'double', log10: 'double', exp: 'double', hypot: 'double', atan2: 'double', random: 'double',
-    round: (args) => (args[0] === 'float' ? 'int' : 'long'),
+    // round(double) は long、それ以外（int・long・char・float）は round(float) が選ばれて int
+    round: (args) => (args[0] === null ? null : unboxType(args[0]) === 'double' ? 'long' : 'int'),
     floorDiv: (args) => (args.includes('long') ? 'long' : args.includes(null) ? null : 'int'),
     floorMod: (args) => (args.includes('long') ? 'long' : args.includes(null) ? null : 'int'),
     abs: (args) => (args[0] === null ? null : promote(args[0], 'int')),
@@ -232,6 +233,7 @@ const STATIC_RETURNS = {
     of: (args) => `Stream<${args.length && args.every(a => a === args[0]) && args[0] ? boxType(args[0]) : 'Object'}>`,
     iterate: (args) => (args[0] ? `Stream<${boxType(args[0])}>` : 'Stream'), empty: 'Stream',
   },
+  Optional: { of: (args) => (args[0] ? `Optional<${boxType(args[0])}>` : 'Optional'), ofNullable: (args) => (args[0] && args[0] !== 'null' ? `Optional<${boxType(args[0])}>` : 'Optional'), empty: 'Optional' },
   IntStream: { range: 'IntStream', rangeClosed: 'IntStream', of: 'IntStream', iterate: 'IntStream' },
   Collectors: {
     toList: 'Collector:toList', toSet: 'Collector:toSet', joining: 'Collector:joining', counting: 'Collector:counting',
@@ -760,6 +762,7 @@ export function check(ast, classes) {
     markType(n, 'returnType', ret);
     const lctx = { ...ctx, lambda: { ret, returns: [] }, yields: undefined, collectorElem: undefined };
     if (n.expression) {
+      if (ret && ret !== 'void') inferDiamond(n.body, ret);
       const t = exprT(n.body, ret === 'void' ? null : ret, inner, lctx);
       markType(n, 'bodyType', t);
       if (ret === 'void') {
@@ -892,6 +895,7 @@ export function check(ast, classes) {
           if (rt && rt !== 'void') throw err(`このメソッドは ${rt} の値を返します（return の後ろに値を書きます）`, s.loc, 'missing return value');
           return;
         }
+        inferDiamond(s.argument, rt);
         const t = exprT(s.argument, rt, locals, ctx);
         if (ctx.lambda) ctx.lambda.returns.push(t);
         if (ctx.lambda && rt !== 'void' && !assignable(t, rt, classes, s.argument)) {
@@ -1131,6 +1135,7 @@ export function check(ast, classes) {
   function mapCallType(n, name, ot, argTypes, loc) {
     const [K = 'Object', V = 'Object'] = typeArgs(ot);
     const need = (i, T) => {
+      inferDiamond(n.arguments[i], T);   // m.put("a", new ArrayList<>()) の <> は値の型から
       if (!assignable(argTypes[i], T, classes)) {
         throw err(`マップ ${ot} の${i === 0 && name !== 'getOrDefault' ? 'キー' : '値'}に ${argTypes[i]} の値は使えません（キーは ${K}、値は ${V} です）`, n.loc,
           `method ${name} in ${ownerText(baseType(ot))} cannot be applied to given types;`);
@@ -1188,6 +1193,7 @@ export function check(ast, classes) {
     markType(n, 'argTypes', argTypes);   // remove(int) と remove(Object) の区別に使う
     const E = typeArgs(ot)[0] ?? 'Object';
     const elemArg = (i) => {
+      inferDiamond(n.arguments[i], E);
       if (!assignable(argTypes[i], E, classes)) {
         // add は add(E) と add(int, E) の 2 つの形があるので、javac は「当てはまるメソッドがない」と書く
         const javac = name === 'add' ? `no suitable method found for add(${argTypes.join(',')})` : `incompatible types: ${argTypes[i]} cannot be converted to ${E}`;
@@ -1196,7 +1202,7 @@ export function check(ast, classes) {
     };
     const indexArg = (i) => {
       if (argTypes[i] !== null && !widens(unboxType(argTypes[i]), 'int')) {
-        throw err('リストの位置（添字）には int の値を使います', n.arguments[i].loc, `incompatible types: ${argTypes[i]} cannot be converted to int`);
+        throw err('リストの位置（添字）には int の値を使います', n.arguments[i].loc, `method ${name} in ${ownerText(baseType(ot))} cannot be applied to given types;`);
       }
     };
     switch (name) {
@@ -1255,7 +1261,7 @@ export function check(ast, classes) {
       }
       const m = mostSpecific(ok, argTypes);
       markSignature(n, m);
-      m.paramTypes.forEach((p, i) => { markUnbox(n.arguments[i], argTypes[i], p); fnTargets[i] = p; });
+      m.paramTypes.forEach((p, i) => { markUnbox(n.arguments[i], argTypes[i], p); inferDiamond(n.arguments[i], p); fnTargets[i] = p; });
       for (const t of m.throws ?? []) requireHandled(t, n.loc, ctx);
       return m.returnType;
     };

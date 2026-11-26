@@ -215,6 +215,21 @@ public class TraceStates {
             case "java.util.ImmutableCollections$MapN", "java.util.ImmutableCollections$Map1" -> {
                 return mapRepr(mapEntries(o), depth, true);
             }
+            // keySet()・values()・entrySet()（HashMap の中のクラス）は、元のマップ（this$0）の今の中身を書く（ADR-009）
+            case "java.util.HashMap$KeySet", "java.util.HashMap$Values", "java.util.HashMap$EntrySet" -> {
+                List<Value> xs = new ArrayList<>();
+                for (Value[] kv : mapEntries((ObjectReference) o.getValue(fieldOf(t, "this$0")))) {
+                    if (n.endsWith("KeySet")) xs.add(kv[0]);
+                    else if (n.endsWith("Values")) xs.add(kv[1]);
+                }
+                if (n.endsWith("EntrySet")) {
+                    if (depth >= 3) return "[…]";
+                    List<String> items = new ArrayList<>();
+                    for (Value[] kv : mapEntries((ObjectReference) o.getValue(fieldOf(t, "this$0")))) items.add(repr(kv[0], depth + 2) + "=" + repr(kv[1], depth + 2));
+                    return "[" + String.join(", ", items) + "]";
+                }
+                return setRepr(xs, depth, false);
+            }
             case "java.util.HashSet", "java.util.LinkedHashSet" -> {
                 List<Value> ks = new ArrayList<>();
                 for (Value[] kv : mapEntries((ObjectReference) o.getValue(fieldOf(t, "map")))) ks.add(kv[0]);

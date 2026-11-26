@@ -62,8 +62,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm test
+      # npm test と同じテストを、カバレッジを測りながら流す。テストが通っていない行のうち、理由
+      # （tests/coverage-allowlist.json）のないものがあれば失敗する（CLAUDE.md の「カバレッジの抜けの確認」）
+      - name: Run tests (with coverage check)
+        run: npm run coverage:check
 
       - name: Build
         run: node scripts/build.mjs

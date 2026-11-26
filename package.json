@@ -5,7 +5,10 @@
   "description": "Java program execution visualizer for programming education",
   "type": "module",
   "scripts": {
-    "test": "node --test \"tests/**/*.test.js\""
+    "test": "node --test \"tests/**/*.test.js\"",
+    "coverage": "node --test --experimental-test-coverage --test-coverage-include='src/**' \"tests/**/*.test.js\"",
+    "coverage:check": "node scripts/coverage-check.mjs",
+    "test:dom": "node scripts/capture-dom.mjs"
   },
   "dependencies": {
     "@codemirror/lang-java": "^6.0.2",

@@ -129,6 +129,7 @@ const RuntimeException = lang('RuntimeException', Exception);
 const IllegalArgumentException = lang('IllegalArgumentException', RuntimeException);
 const IndexOutOfBoundsException = lang('IndexOutOfBoundsException', RuntimeException);
 
+const IllegalFormatException = new JClass('IllegalFormatException', IllegalArgumentException, { builtin: true, pkg: 'java.util' });
 const NoSuchElementException = new JClass('NoSuchElementException', RuntimeException, { builtin: true, pkg: 'java.util' });
 
 /** 組み込みのインターフェース Comparable（自作のクラスが implements Comparable<T> で使う。ADR-008） */
@@ -163,6 +164,10 @@ export const BUILTIN_CLASSES = new Map([
   Runnable,
   new JClass('InputMismatchException', NoSuchElementException, { builtin: true, pkg: 'java.util' }),
   new JClass('ConcurrentModificationException', RuntimeException, { builtin: true, pkg: 'java.util' }),
+  // printf の書式の誤り（%q・%d に文字列）。本物と同じく IllegalFormatException の下
+  IllegalFormatException,
+  new JClass('UnknownFormatConversionException', IllegalFormatException, { builtin: true, pkg: 'java.util' }),
+  new JClass('IllegalFormatConversionException', IllegalFormatException, { builtin: true, pkg: 'java.util' }),
 ].map(c => [c.name, c]));
 
 export const isThrowableClass = (c) => isSubclassOf(c, Throwable);

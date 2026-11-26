@@ -131,3 +131,12 @@ test('ADR-005 例 2：数として読めない入力・入力の終わり・impo
   assert.equal(e.name, 'CompileError');
   assert.equal(e.javac, 'cannot find symbol');
 });
+
+test('ADR-004 例 4：if の片方だけで値を入れた変数を使うと、実行する前にコンパイルエラー（条件が真でも）', () => {
+  const e = compileError(main('        int y;\n        boolean c = true;\n        if (c) {\n            y = 1;\n        }\n        System.out.println(y);'));
+  assert.equal(e?.name, 'CompileError');
+  assert.equal(e.line, 8);
+  assert.equal(e.javac, 'variable y might not have been initialized');
+  // else でも値を入れれば通る
+  assert.equal(compileError(main('        int y;\n        if (true) {\n            y = 1;\n        } else {\n            y = 2;\n        }\n        System.out.println(y);')), null);
+});

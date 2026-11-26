@@ -159,14 +159,27 @@ function hasBreak(n, top = true) {
   return false;
 }
 
+/** 文の中に、その文自身に対する continue があるか（入れ子のループの continue は数えない） */
+function hasJump(n, type, top = true) {
+  if (!n || typeof n !== 'object') return false;
+  if (Array.isArray(n)) return n.some(x => hasJump(x, type, top));
+  if (n.type === type) return true;
+  if (!top && /^(WhileStatement|DoWhileStatement|ForStatement|ForOfStatement)$/.test(n.type)) return false;
+  for (const k of Object.keys(n)) {
+    if (k === 'loc' || k === 'end' || k === 'range') continue;
+    if (hasJump(n[k], type, false)) return true;
+  }
+  return false;
+}
+
 function canComplete(s) {
   if (!s) return true;
   switch (s.type) {
-    case 'ReturnStatement': case 'ThrowStatement': return false;
+    case 'ReturnStatement': case 'ThrowStatement': case 'BreakStatement': case 'ContinueStatement': return false;
     case 'BlockStatement': return s.body.every(canComplete);
     case 'IfStatement': return !s.alternate || canComplete(s.consequent) || canComplete(s.alternate);
     case 'WhileStatement': return !isTrueLiteral(s.test) || hasBreak(s.body);
-    case 'DoWhileStatement': return (canComplete(s.body) && !isTrueLiteral(s.test)) || hasBreak(s.body);
+    case 'DoWhileStatement': return ((canComplete(s.body) || hasJump(s.body, 'ContinueStatement')) && !isTrueLiteral(s.test)) || hasBreak(s.body);
     case 'ForStatement': return (s.test !== null && !isTrueLiteral(s.test)) || hasBreak(s.body);
     case 'SwitchStatement': {
       if (!s.cases.some(c => c.default)) return true;
@@ -180,6 +193,175 @@ function canComplete(s) {
       return canComplete(s.block) || s.handlers.some(h => canComplete(h.body));
   }
   return true;
+}
+
+// ── 確実な代入（JLS 16 章の簡略版）と到達できない文（JLS 14.22） ─────────────────
+//
+// 初期化子なしで宣言したローカル変数（int y;）を、どの道筋でも値を入れる前に使っていないかを調べる。
+// 状態は「確実に値が入っている変数の集合」。ALL は「ここには来ない」（return・break のあと）で、どの集合とも交わりが相手になる。
+// 誤ってエラーにしないことを優先し、switch・ループの break・finally は、値が入りうる変数を入っているものとして扱う（ゆるめ）。
+
+const ALL = Symbol('unreachable');
+const inter = (a, b) => (a === ALL ? b : b === ALL ? a : new Set([...a].filter(x => b.has(x))));
+const union = (a, b) => (a === ALL || b === ALL ? ALL : new Set([...a, ...b]));
+const plus = (a, name) => (a === ALL ? ALL : new Set([...a, name]));
+
+/** 文・式の中で、= で値を入れているローカル変数の名前 */
+function assignedNames(n, out = new Set()) {
+  if (!n || typeof n !== 'object') return out;
+  if (Array.isArray(n)) { n.forEach(x => assignedNames(x, out)); return out; }
+  if (n.type === 'AssignmentExpression' && n.left.type === 'Identifier') out.add(n.left.name);
+  if (n.type === 'VariableDeclarator' && n.init) out.add(n.id.name);
+  for (const k of Object.keys(n)) if (k !== 'loc' && k !== 'end' && k !== 'range') assignedNames(n[k], out);
+  return out;
+}
+
+/**
+ * メソッドの本体の確実な代入と到達できない文を調べる。誤りがあれば JavaCompileError を投げる
+ * @param {object} body BlockStatement
+ * @param {string[]} params 引数の名前（はじめから値が入っている）
+ */
+function checkFlow(body, params) {
+  const tracked = new Set();   // 初期化子なしで宣言した変数
+
+  const use = (name, loc, da) => {
+    if (tracked.has(name) && da !== ALL && !da.has(name)) {
+      throw err(`変数 ${name} に値を入れる前に使っています（どの道筋を通っても、使う前に値が入るようにします）`, loc,
+        `variable ${name} might not have been initialized`);
+    }
+  };
+
+  /** 条件式：真のときと偽のときの状態 */
+  function cond(e, da) {
+    if (e.type === 'Literal' && e.jtype === 'boolean') return e.value ? { t: da, f: ALL } : { t: ALL, f: da };
+    if (e.type === 'LogicalExpression') {
+      const l = cond(e.left, da);
+      if (e.operator === '&&') { const r = cond(e.right, l.t); return { t: r.t, f: inter(l.f, r.f) }; }
+      const r = cond(e.right, l.f);
+      return { t: inter(l.t, r.t), f: r.f };
+    }
+    if (e.type === 'UnaryExpression' && e.operator === '!') { const c = cond(e.argument, da); return { t: c.f, f: c.t }; }
+    const d = expr(e, da);
+    return { t: d, f: d };
+  }
+
+  function expr(e, da) {
+    if (!e) return da;
+    switch (e.type) {
+      case 'Identifier': use(e.name, e.loc, da); return da;
+      case 'Literal': case 'ThisExpression': case 'Super': return da;
+      case 'AssignmentExpression':
+        if (e.left.type === 'Identifier') {
+          if (e.operator !== '=') use(e.left.name, e.left.loc, da);
+          return plus(expr(e.right, da), e.left.name);
+        }
+        return expr(e.right, expr(e.left, da));
+      case 'UpdateExpression': return expr(e.argument, da);
+      case 'LogicalExpression': { const c = cond(e, da); return inter(c.t, c.f); }
+      case 'ConditionalExpression': { const c = cond(e.test, da); return inter(expr(e.consequent, c.t), expr(e.alternate, c.f)); }
+      case 'CallExpression': {
+        let d = e.callee.type === 'MemberExpression' ? expr(e.callee.object, da) : da;
+        for (const a of e.arguments) d = expr(a, d);
+        return d;
+      }
+      case 'MemberExpression': { const d = expr(e.object, da); return e.computed ? expr(e.property, d) : d; }
+      case 'NewExpression': return e.arguments.reduce((d, a) => expr(a, d), da);
+      case 'NewArrayExpression': return expr(e.init, e.dims.reduce((d, a) => expr(a, d), da));
+      case 'ArrayExpression': return e.elements.reduce((d, a) => expr(a, d), da);
+      case 'BinaryExpression': return expr(e.right, expr(e.left, da));
+      case 'UnaryExpression': return expr(e.argument, da);
+      case 'CastExpression': return expr(e.argument, da);
+      case 'InstanceofExpression': return expr(e.expression, da);
+      case 'SequenceExpression': return e.expressions.reduce((d, a) => expr(a, d), da);
+    }
+    return da;
+  }
+
+  function block(list, da) {
+    let d = da;
+    list.forEach((st, i) => {
+      if (i > 0 && !canComplete(list[i - 1])) {
+        throw err('この文には実行が届きません（前の return・break・continue・throw のあとに書かれています）', st.loc, 'unreachable statement');
+      }
+      d = stmt(st, d);
+    });
+    return d;
+  }
+
+  function stmt(s, da) {
+    if (!s) return da;
+    switch (s.type) {
+      case 'BlockStatement': return block(s.body, da);
+      case 'VariableDeclaration': {
+        let d = da;
+        for (const decl of s.declarations) {
+          if (decl.init) d = plus(expr(decl.init, d), decl.id.name);
+          else {
+            tracked.add(decl.id.name);
+            if (d !== ALL) { d = new Set(d); d.delete(decl.id.name); }
+          }
+        }
+        return d;
+      }
+      case 'ExpressionStatement': return expr(s.expression, da);
+      case 'IfStatement': {
+        const c = cond(s.test, da);
+        return inter(stmt(s.consequent, c.t), s.alternate ? stmt(s.alternate, c.f) : c.f);
+      }
+      case 'WhileStatement': {
+        const c = cond(s.test, da);
+        stmt(s.body, c.t);
+        if (isTrueLiteral(s.test)) return hasBreak(s.body) ? union(da, assignedNames(s.body)) : ALL;
+        return c.f;
+      }
+      case 'DoWhileStatement': {
+        const b = stmt(s.body, da);
+        const c = cond(s.test, b === ALL ? union(da, assignedNames(s.body)) : b);
+        if (hasBreak(s.body)) return union(inter(c.f, da), assignedNames(s.body));
+        return c.f;
+      }
+      case 'ForStatement': {
+        let d = s.init ? (s.init.type === 'VariableDeclaration' ? stmt(s.init, da) : expr(s.init, da)) : da;
+        const c = s.test ? cond(s.test, d) : { t: d, f: ALL };
+        const b = stmt(s.body, c.t);
+        expr(s.update, b === ALL ? c.t : b);
+        if (hasBreak(s.body)) return union(inter(c.f, d), assignedNames(s.body));
+        return c.f;
+      }
+      case 'ForOfStatement': { const d = expr(s.right, da); stmt(s.body, plus(d, s.left.name)); return d; }
+      case 'SwitchStatement': {
+        const d = expr(s.discriminant, da);
+        for (const c of s.cases) block(c.consequent, d === ALL ? d : union(d, assignedNames(s.cases)));
+        if (!s.cases.some(c => c.default)) return d;
+        // default があれば、各 case から（break のない case は次の case へ続けて）入る変数の共通部分が入っている
+        let common = null;
+        s.cases.forEach((c, i) => {
+          const names = new Set();
+          for (let j = i; j < s.cases.length; j++) {
+            assignedNames(s.cases[j].consequent, names);
+            if (s.arrow || !s.cases[j].consequent.every(canComplete)) break;
+          }
+          common = common === null ? names : new Set([...common].filter(x => names.has(x)));
+        });
+        return union(d, common ?? new Set());
+      }
+      case 'TryStatement': {
+        let out = stmt(s.block, da);
+        for (const h of s.handlers) out = inter(out, stmt(h.body, union(da, new Set([h.param.name]))));
+        if (s.finalizer) {
+          // finally はいつも実行されるので、そこで入る変数も入っている。finally が最後まで進めなければ、その先には来ない
+          const f = stmt(s.finalizer, da);
+          out = f === ALL ? ALL : union(out, assignedNames(s.finalizer));
+        }
+        return out;
+      }
+      case 'ReturnStatement': case 'ThrowStatement': expr(s.argument, da); return ALL;
+      case 'BreakStatement': case 'ContinueStatement': return ALL;
+    }
+    return da;
+  }
+
+  stmt(body, new Set(params));
 }
 
 // ── 検査例外（JLS 11.2） ─────────────────────────────────────────────────────
@@ -245,6 +427,7 @@ export function check(ast, classes) {
       // handled：いま捕まえられる例外の型（外側の try の catch と、メソッドの throws）。内側の try で積む
       const ctx = { cls, isStatic: m.static, method: m, handled: [...(m.throws ?? [])] };
       stmt(m.body, locals, ctx);
+      checkFlow(m.body, m.params);
       if (m.returnType && m.returnType !== 'void' && canComplete(m.body)) {
         throw err(`メソッド ${m.name} の最後まで進むと、値を返さずに終わってしまいます（return で ${m.returnType} の値を返します）`,
           m.node.bodyEnd, 'missing return statement');

@@ -182,6 +182,26 @@ function canComplete(s) {
   return true;
 }
 
+// ── オーバーロードの選択（JLS 15.12.2 の簡略版） ───────────────────────────────
+
+/**
+ * 当てはまるメソッドの中から、いちばん特定的なもの（ほかのどれの引数にも渡せる引数の型を持つもの）を選ぶ。
+ * 引数の型が分からないとき（null）は、候補の順の最初のものにする（評価器は実行時の値の型で選ぶ）
+ */
+function mostSpecific(ok, argTypes) {
+  if (ok.length === 1 || argTypes.includes(null)) return ok[0];
+  const moreSpecific = (m1, m2) => m1.paramTypes.every((p, i) => assignableType(p, m2.paramTypes[i]));
+  return ok.find(m => ok.every(o => o === m || moreSpecific(m, o))) ?? ok[0];
+}
+
+/** 型 from を型 to に渡せるか（mostSpecific 用。値の式なしの代入の変換） */
+let assignableType = () => true;
+
+/** 呼び出しの式に、選んだメソッドの引数の型の並び（シグネチャ）を印として付ける。評価器はこれで同じメソッドを呼ぶ */
+function markSignature(n, m) {
+  Object.defineProperty(n, 'signature', { value: m.paramTypes.join(','), enumerable: false, configurable: true });
+}
+
 // ── 型の推論 ──────────────────────────────────────────────────────────────────
 
 class Locals {
@@ -195,6 +215,7 @@ class Locals {
  * @param {Map<string, import('./objects.js').JClass>} classes
  */
 export function check(ast, classes) {
+  assignableType = (from, to) => assignable(from, to, classes);
   const imported = importedUtil(ast.imports);
   const needImport = (name, loc) => {
     if (JAVA_UTIL.has(name) && !classes.has(name) && !imported.has(name)) {
@@ -348,8 +369,9 @@ export function check(ast, classes) {
       if (!cands.length) {
         throw err(`メソッド ${name} が見つかりません（つづりと、どのクラスのメソッドかを確かめてください）`, c.loc, 'cannot find symbol');
       }
+      // メソッドの引数には、定数の縮小（char c = 97; の形）は当てはまらない（JLS 5.3）ので、式を渡さない
       const ok = cands.filter(m => m.paramTypes.length === argTypes.length
-        && m.paramTypes.every((p, i) => assignable(argTypes[i], p, classes, n.arguments[i])));
+        && m.paramTypes.every((p, i) => assignable(argTypes[i], p, classes)));
       if (!ok.length) {
         const m = cands[0];
         throw err(`メソッド ${name} に渡す引数の数か型が合いません（${name}(${m.paramTypes.join(', ')}) に ${argTypes.length} 個の引数（${argTypes.map(t => t ?? '?').join(', ')}）を渡しています）`,
@@ -359,7 +381,9 @@ export function check(ast, classes) {
         throw err(`static メソッドの中から、インスタンスのメソッド ${name} は呼べません`, n.loc,
           `non-static method ${name}(${ok[0].paramTypes.join(',')}) cannot be referenced from a static context`);
       }
-      return ok[0].returnType;
+      const m = mostSpecific(ok, argTypes);
+      markSignature(n, m);
+      return m.returnType;
     };
     if (c.type === 'Identifier') return userCall(ctx.cls, c.name, { fromStatic: ctx.isStatic });
     const name = c.property.name;
@@ -448,6 +472,11 @@ export function check(ast, classes) {
         }
         if (a === 'null') return b;
         if (b === 'null') return a;
+        // 参照の型どうし：片方がもう片方に渡せるなら、広い方の型（d : a は Animal）
+        if (a && b && !isPrimitiveType(a) && !isPrimitiveType(b)) {
+          if (assignable(a, b, classes)) return b;
+          if (assignable(b, a, classes)) return a;
+        }
         return null;
       }
       case 'SequenceExpression': { let t = null; for (const e of n.expressions) t = expr(e, locals, ctx); return t; }
@@ -497,10 +526,12 @@ export function check(ast, classes) {
           if (cls.ctors.length === 0 && argTypes.length) {
             throw err(`クラス ${name} のコンストラクタは引数を受け取りません`, n.loc, `constructor ${name} in class ${name} cannot be applied to given types;`);
           }
-          if (cls.ctors.length && !cls.ctors.some(m => m.paramTypes.length === argTypes.length
-            && m.paramTypes.every((p, i) => assignable(argTypes[i], p, classes, n.arguments[i])))) {
+          const okCtors = cls.ctors.filter(m => m.paramTypes.length === argTypes.length
+            && m.paramTypes.every((p, i) => assignable(argTypes[i], p, classes)));
+          if (cls.ctors.length && !okCtors.length) {
             throw err(`クラス ${name} のコンストラクタに渡す引数の数か型が合いません`, n.loc, `constructor ${name} in class ${name} cannot be applied to given types;`);
           }
+          if (okCtors.length) markSignature(n, mostSpecific(okCtors, argTypes));
         }
         return name;
       }

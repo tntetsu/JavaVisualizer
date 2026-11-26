@@ -322,7 +322,7 @@ function runFieldInits(cls, isStatic, obj, env, rt, depth, callDepth) {
 }
 
 /** new クラス名(引数) */
-function instantiate(cls, args, rt, depth, callDepth, loc) {
+function instantiate(cls, args, rt, depth, callDepth, loc, signature) {
   if (cls.builtin) {
     if (isSubclassOf(cls, ObjectClass) && cls !== ObjectClass) return makeThrowable(cls, isString(args[0]) ? args[0].s : null);
     return makeObject(cls);
@@ -330,12 +330,12 @@ function instantiate(cls, args, rt, depth, callDepth, loc) {
   ensureInit(cls, rt);
   const obj = makeObject(cls);
   for (const f of instanceFields(cls)) obj.fields[f.name] = defaultValue(f.type);
-  construct(cls, obj, args, rt, depth, callDepth, loc);
+  construct(cls, obj, args, rt, depth, callDepth, loc, signature);
   return obj;
 }
 
 /** コンストラクタを実行する（なければ既定のコンストラクタ：上のクラスの引数なしのコンストラクタとフィールドの初期化） */
-function construct(cls, obj, args, rt, depth, callDepth, loc) {
+function construct(cls, obj, args, rt, depth, callDepth, loc, signature) {
   if (cls.builtin) {
     if (cls !== ObjectClass && isString(args[0])) obj.fields.message = args[0];
     return;
@@ -347,7 +347,7 @@ function construct(cls, obj, args, rt, depth, callDepth, loc) {
     runFieldInits(cls, false, obj, env, rt, depth, callDepth);
     return;
   }
-  const c = chooseMethod(cls.ctors, args, loc, cls.name);
+  const c = chooseMethod(cls.ctors, args, loc, cls.name, signature);
   callMethod(c, obj, args, rt, depth, callDepth, loc);
 }
 
@@ -375,7 +375,12 @@ function argDistance(v, t) {
 }
 
 /** オーバーロードの中から、実行時の引数の型でいちばん近いものを選ぶ（ADR-002 の簡略版） */
-function chooseMethod(cands, args, loc, name) {
+function chooseMethod(cands, args, loc, name, signature) {
+  // 静的な検査が、引数の宣言の型で選んだメソッド（JLS 15.12.2）。オーバーライドは呼ぶ側が実行時のクラスで選ぶ
+  if (signature !== undefined) {
+    const m = cands.find(x => x.paramTypes.join(',') === signature);
+    if (m) return m;
+  }
   let best = null, bestScore = Infinity;
   for (const m of cands) {
     if (m.paramTypes.length !== args.length) continue;
@@ -939,7 +944,7 @@ function _eval(node, env, rt, depth, callDepth) {
       const cls = rt.classes.get(name) ?? BUILTIN_CLASSES.get(name);
       if (!cls) throw compileError(`クラス ${name} が見つかりません`, node.callee.loc, 'cannot find symbol');
       const args = node.arguments.map(a => ev(a));
-      return instantiate(cls, args, rt, d, callDepth, node.loc);
+      return instantiate(cls, args, rt, d, callDepth, node.loc, node.signature);
     }
 
     case 'NewArrayExpression': {
@@ -994,7 +999,7 @@ function evalCall(node, env, rt, d, callDepth) {
     if (!cands.length) throw compileError(`メソッド ${callee.name} が見つかりません`, callee.loc, 'cannot find symbol');
     recordCallee(() => methodValue(rt, cands));
     const args = evArgs();
-    let m = chooseMethod(cands, args, node.loc, callee.name);
+    let m = chooseMethod(cands, args, node.loc, callee.name, node.signature);
     if (!m.static) {
       if (!ctx.thisObj) throw compileError(`static メソッドの中から、インスタンスのメソッド ${m.name} は呼べません`, node.loc, `non-static method ${m.name}(${m.paramTypes.join(',')}) cannot be referenced from a static context`);
       m = dispatch(ctx.thisObj, m);
@@ -1010,7 +1015,7 @@ function evalCall(node, env, rt, d, callDepth) {
     recordCallee(() => (cands.length ? methodValue(rt, cands) : nativeValue(rt, name)));
     const args = evArgs();
     if (sup.builtin) return objectMethod(ctx.thisObj, name, args, rt, node.loc);
-    return callMethod(chooseMethod(cands, args, node.loc, name), ctx.thisObj, args, rt, d, callDepth, node.loc);
+    return callMethod(chooseMethod(cands, args, node.loc, name, node.signature), ctx.thisObj, args, rt, d, callDepth, node.loc);
   }
 
   let obj;
@@ -1031,7 +1036,7 @@ function evalCall(node, env, rt, d, callDepth) {
   }
   if (isClass(obj)) {
     ensureInit(obj, rt);
-    const m = chooseMethod(findMethods(obj, name).filter(x => x.static), args, node.loc, name);
+    const m = chooseMethod(findMethods(obj, name).filter(x => x.static), args, node.loc, name, node.signature);
     return callMethod(m, null, args, rt, d, callDepth, node.loc);
   }
   if (obj === null) throw npe(node.loc);
@@ -1048,7 +1053,7 @@ function evalCall(node, env, rt, d, callDepth) {
   }
   if (isJObject(obj)) {
     const cands = findMethods(obj.cls, name).filter(x => !x.static);
-    if (cands.length) return callMethod(dispatch(obj, chooseMethod(cands, args, node.loc, name)), obj, args, rt, d, callDepth, node.loc);
+    if (cands.length) return callMethod(dispatch(obj, chooseMethod(cands, args, node.loc, name, node.signature)), obj, args, rt, d, callDepth, node.loc);
     return objectMethod(obj, name, args, rt, node.loc);
   }
   if (isArray(obj) && name === 'clone') return makeArray(obj.__jelem, obj);

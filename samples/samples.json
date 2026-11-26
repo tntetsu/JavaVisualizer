@@ -45,6 +45,10 @@
         [
           "11_sort_objects",
           "Sort objects (numeric key)"
+        ],
+        [
+          "18_sort_by_string_key",
+          "Sort objects (string key)"
         ]
       ]
     },
@@ -87,6 +91,19 @@
       ]
     },
     {
+      "label": "─ Classes ─",
+      "items": [
+        [
+          "12_static_and_instance",
+          "static and instance fields"
+        ],
+        [
+          "24_class_inheritance",
+          "Class & Inheritance"
+        ]
+      ]
+    },
+    {
       "label": "─ Java ─",
       "items": [
         [
@@ -96,15 +113,31 @@
         [
           "25_exceptions",
           "Exceptions (try / catch)"
+        ],
+        [
+          "26_scanner_input",
+          "Input (Scanner)"
         ]
       ]
     },
     {
-      "label": "─ Classes ─",
+      "label": "─ Study Tasks ─",
       "items": [
         [
-          "24_class_inheritance",
-          "Class & Inheritance"
+          "20_study_warmup",
+          "[Warm-up] Factorial (loop)"
+        ],
+        [
+          "21_study_task1",
+          "[Task 1] Selection Sort — find the bug"
+        ],
+        [
+          "22_study_task2",
+          "[Task 2] Fibonacci — count method calls"
+        ],
+        [
+          "23_study_task3",
+          "[Task 3] Bubble Sort — trace intermediate state"
         ]
       ]
     }

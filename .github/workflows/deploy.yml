@@ -1,0 +1,88 @@
+name: Test, build, and deploy
+
+# push・プルリクエストでは、テストとビルドだけを行う（公開はしない）。
+# GitHub Pages への公開は、手動で実行したとき（workflow_dispatch）だけ。公開の方法は docs/development-plan.md の
+# 「決めること」6（リポジトリを公開するか）が決まるまで、手動にしておく。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 共通の土台（兄弟リポジトリ）は、ブランチの最新ではなくタグで固定して参照する（PyVisualizer の docs/multilang-plan.md 3.1 節）。
+# 土台を変えたら、兄弟リポジトリに新しいタグを付けて、ここを書き換える。
+env:
+  INTERP_CORE_REF: multilang-core-2026.11.25.2     # JSInterpreter の feature/interp-core（共通コア）
+  INTERP_MASTER_REF: multilang-master-2026.11.25.2 # JSInterpreter の master（JSVisualizer のテストが import する JS のエンジン）
+  VISUALIZER_REF: multilang-2026.11.26.2           # JSVisualizer の feature/multilang（言語プロファイルの画面）
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# ビルドとデプロイを別のジョブにする（PyVisualizer と同じ。1 つのジョブだと成果物が見えずに失敗することがあった）
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout JavaVisualizer
+        uses: actions/checkout@v5
+
+      # package.json の file: 参照に合わせて、兄弟リポジトリを取得する（上の env のタグ）
+      - name: Clone sibling repositories
+        run: |
+          git clone --depth 1 --branch "$INTERP_CORE_REF" https://github.com/tntetsu/JSInterpreter.git ../JSInterpreter-core
+          git clone --depth 1 --branch "$INTERP_MASTER_REF" https://github.com/tntetsu/JSInterpreter.git ../JSInterpreter
+          git clone --depth 1 --branch "$VISUALIZER_REF" https://github.com/tntetsu/JSVisualizer.git ../JSVisualizer-multilang
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      # 本物の Java との比較テスト用（ローカルと同じ OpenJDK 21）
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install JSVisualizer dependencies and build its JS engine bundle
+        working-directory: ../JSVisualizer-multilang
+        run: |
+          npm ci
+          npm run build:interp
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: node scripts/build.mjs
+
+      - name: Upload Pages artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: web/
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

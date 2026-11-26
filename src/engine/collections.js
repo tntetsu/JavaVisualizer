@@ -55,6 +55,17 @@ export const listString = (list, ctx) => `[${list.map(x => (x === list ? '(this 
 
 const INDEX_TYPES = new Set(['int', 'short', 'byte', 'char']);
 
+/** void のメソッドの戻り値の印（undefined は「メソッドが見つからない」に使う。評価器が undefined に直す） */
+export const VOID_LIST = Symbol.for('java.void');
+const nn = (f) => { if (f === null || f === undefined) throw new JavaError('NullPointerException', null); };
+
+/** 比べ方 c（ラムダ式・Comparator。null なら自然な順序）で比べる */
+export function cmpWith(c, a, b, ctx) {
+  if (c === null || c === undefined) return naturalCompare(a, b, ctx);
+  const r = ctx.call(c, [a, b], 'compare');
+  return typeof r === 'bigint' ? Number(r) : num(r);
+}
+
 export function callListMethod(list, name, args, ctx, argTypes = []) {
   const mutable = list.__jlist === 'ArrayList';
   const need = () => { if (!mutable) throw unsupported(); };
@@ -87,7 +98,18 @@ export function callListMethod(list, name, args, ctx, argTypes = []) {
     case 'indexOf': return indexOf(a0);
     case 'lastIndexOf': { for (let i = list.length - 1; i >= 0; i--) if (ctx.equals(a0, list[i])) return i; return -1; }
     case 'clear': need(); list.length = 0; return undefined;
-    case 'sort': need(); if (a0 !== null) return undefined; sortInPlace(list, (x, y) => naturalCompare(x, y, ctx)); return undefined;
+    case 'sort': need(); sortInPlace(list, (x, y) => cmpWith(a0, x, y, ctx)); return undefined;
+    // ラムダ式を受け取るメソッド（ADR-010）
+    case 'forEach': { nn(a0); for (const x of [...list]) ctx.call(a0, [x], 'accept'); return VOID_LIST; }
+    case 'removeIf': {
+      need(); nn(a0);
+      const keep = list.filter(x => !ctx.call(a0, [x], 'test'));
+      const changed = keep.length !== list.length;
+      list.length = 0;
+      list.push(...keep);
+      return changed;
+    }
+    case 'replaceAll': { need(); nn(a0); for (let i = 0; i < list.length; i++) list[i] = ctx.call(a0, [list[i]], 'apply'); return VOID_LIST; }
     case 'toString': return S(listString(list, ctx));
     case 'equals': return isList(a0) && a0.length === list.length && list.every((x, i) => ctx.equals(x, a0[i]));
     case 'hashCode': return list.reduce((h, x) => (Math.imul(31, h) + ctx.hashCode(x)) | 0, 1);
@@ -105,7 +127,7 @@ export function createCollectionBuiltins() {
       },
     }, 'java.util')],
     ['Collections', new JBuiltin('Collections', {
-      sort: ([list], ctx) => { if (list.__jlist !== 'ArrayList') throw unsupported(); sortInPlace(list, (x, y) => naturalCompare(x, y, ctx)); return undefined; },
+      sort: ([list, c], ctx) => { if (list.__jlist !== 'ArrayList') throw unsupported(); sortInPlace(list, (x, y) => cmpWith(c, x, y, ctx)); return undefined; },
       reverse: ([list]) => { if (list.__jlist !== 'ArrayList') throw unsupported(); list.reverse(); return undefined; },
       swap: ([list, i, j]) => {
         if (i < 0 || i >= list.length) throw oob(i, list.length);
@@ -113,14 +135,16 @@ export function createCollectionBuiltins() {
         [list[i], list[j]] = [list[j], list[i]];
         return undefined;
       },
-      max: ([list], ctx) => {
+      max: ([list, c], ctx) => {
         if (!list.length) throw new JavaError('NoSuchElementException', null);
-        return list.reduce((m, x) => (naturalCompare(x, m, ctx) > 0 ? x : m));
+        return list.reduce((m, x) => (cmpWith(c, x, m, ctx) > 0 ? x : m));
       },
-      min: ([list], ctx) => {
+      min: ([list, c], ctx) => {
         if (!list.length) throw new JavaError('NoSuchElementException', null);
-        return list.reduce((m, x) => (naturalCompare(x, m, ctx) < 0 ? x : m));
+        return list.reduce((m, x) => (cmpWith(c, x, m, ctx) < 0 ? x : m));
       },
+      // Collections.reverseOrder()・reverseOrder(比べ方)（ADR-010）
+      reverseOrder: ([c], ctx) => ctx.reverseOrder(c ?? null),
       frequency: ([list, o], ctx) => list.filter(x => ctx.equals(o, x)).length,
     }, 'java.util')],
   ]);

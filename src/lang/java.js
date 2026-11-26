@@ -55,6 +55,10 @@ export const javaValueModel = {
     if (v instanceof JChar || v instanceof JString) return 'string';
     if (isObject(v) && v.__enum) return 'string';   // enum の定数は Color.GREEN と 1 語で書く（ADR-008）
     if (v.__type__ === 'JSFunction') return 'function';   // 呼び出し先のメソッド（ADR-003 追記）
+    if (v.__type__ === 'JLambda') return 'function';      // ラムダ式・メソッド参照（ƒ x -> x * 2。ADR-010）
+    // ストリーム・Collector は中身を見せず、型の名前を 1 語で書く（enum の定数と同じ扱い）。Optional は中の値を持つ箱（ADR-011）
+    if (v.__type__ === 'JStream' || v.__type__ === 'JCollector') return 'string';
+    if (v.__type__ === 'JOptional') return 'object';
     if (isClass(v) || isBuiltin(v)) return 'other';
     if (isSeq(v)) return 'sequence';   // ArrayList・HashSet も配列のビューで見せる（ADR-007・ADR-009）
     if (isMap(v)) return 'mapping';    // HashMap は辞書として見せる（ADR-009）
@@ -66,6 +70,8 @@ export const javaValueModel = {
   literal(v) {
     if (v === undefined) return 'void';
     if (isObject(v) && v.__enum) return `${v.cls.name}.${v.__enum.name}`;
+    if (v?.__type__ === 'JStream') return v.kind;
+    if (v?.__type__ === 'JCollector') return 'Collector';
     if (isClass(v) || isBuiltin(v)) return v.name;
     return literalOf(v);
   },
@@ -73,6 +79,7 @@ export const javaValueModel = {
     if (isSeq(v)) return v.map((x, i) => [i, x]);
     if (isMap(v)) return v.entries.map(e => [keyText(e.key), e.value]);
     if (isEntry(v)) return [['key', v.key], ['value', v.value]];
+    if (v.__type__ === 'JOptional') return v.present ? [['value', v.value]] : [];
     if (isObject(v)) return Object.entries(v.fields);
     return [];
   },
@@ -80,6 +87,7 @@ export const javaValueModel = {
     if (isSeq(v)) return v.length;
     if (isMap(v)) return v.entries.length;
     if (isEntry(v)) return 2;
+    if (v.__type__ === 'JOptional') return v.present ? 1 : 0;
     if (isObject(v)) return Object.keys(v.fields).length;
     return 0;
   },
@@ -91,6 +99,7 @@ export const javaValueModel = {
     if (isSet(v)) return `${setName(v)}(${v.length})`;
     if (isMap(v)) return `${mapName(v)}(${v.entries.length})`;
     if (isEntry(v)) return 'Map.Entry';
+    if (v.__type__ === 'JOptional') return v.kind;
     if (isArray(v)) return `${v.__jelem ?? '?'}[${v.length}]`;
     if (isObject(v)) return v.cls.name;
     return 'Object';
@@ -100,6 +109,7 @@ export const javaValueModel = {
     if (isSet(v)) return setName(v);
     if (isMap(v)) return mapName(v);
     if (isEntry(v)) return 'Map.Entry';
+    if (v.__type__ === 'JOptional') return v.kind;
     if (isArray(v)) return `${v.__jelem ?? '?'}[]`;
     if (isObject(v)) return v.cls.name;
     return 'Object';
@@ -108,11 +118,13 @@ export const javaValueModel = {
     if (isList(v) || isSet(v)) return ['[', ']'];   // リスト・集合は toString と同じ [1, 2, 3]（配列の {1, 2, 3} と書き分ける。ADR-007）
     if (isMap(v)) return ['{', '}'];
     if (isEntry(v)) return ['Entry{', '}'];
+    if (v.__type__ === 'JOptional') return [`${v.kind}[`, ']'];
     if (isArray(v)) return ['{', '}'];   // Java の配列の初期化子の書き方
     if (isObject(v)) return [`${v.cls.name}{`, '}'];
     return ['{', '}'];
   },
   padMapping: false,
+  emptyText: (v) => (v?.__type__ === 'JOptional' ? `${v.kind}.empty` : null),
 };
 
 /**

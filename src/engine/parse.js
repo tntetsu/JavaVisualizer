@@ -629,8 +629,26 @@ export function parse(src) {
         return mk('InstanceofExpression', n, { expression: expr(ks[0]), targetType: typeOf(ks[2]) });
       }
       case 'SwitchExpression': return switchNode(n, 'SwitchExpression');
-      case 'LambdaExpression': return unsupported('ラムダ式', n);
-      case 'MethodReference': return unsupported('メソッド参照（::）', n);
+      case 'LambdaExpression': {
+        // x -> …・(a, b) -> …・(int a, int b) -> { … }（ADR-010）。ESTree の ArrowFunctionExpression と同じ項目（params・body・expression）だが、型の名前は Java の LambdaExpression にする（画面の制御フローのビューが、変数に入れたアロー関数だけを別の関数として描くため）
+        const head = ks[0], bodyN = ks[ks.length - 1];
+        let ps;
+        if (head.name === 'Definition') ps = [mk('Identifier', head, { name: text(head), varType: null })];
+        else if (head.name === 'InferredParameters') ps = children(head, 'Definition').map(d => mk('Identifier', d, { name: text(d), varType: null }));
+        else ps = params(head);
+        const isBlock = bodyN.name === 'Block';
+        return mk('LambdaExpression', n, {
+          params: ps, body: isBlock ? block(bodyN) : expr(bodyN), expression: !isBlock, text: text(n).replace(/\s+/g, ' '),
+        });
+      }
+      case 'MethodReference': {
+        // Integer::sum・String::length・System.out::println・Main::isEven・Point::new（ADR-010）
+        const [objN] = ks;
+        const last = ks[ks.length - 1];
+        const object = objN.name === 'TypeName' ? mk('Identifier', objN, { name: text(objN) }) : expr(objN);
+        if (child(n, 'TypeArguments')) unsupported('型引数つきのメソッド参照', n);
+        return mk('MethodReference', n, { object, name: last.name === 'new' ? 'new' : text(last), text: text(n).replace(/\s+/g, '') });
+      }
       case 'ClassLiteral': return unsupported('クラスリテラル（.class）', n);
     }
     return unsupported(`式「${text(n).slice(0, 20)}」`, n);

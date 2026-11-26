@@ -131,6 +131,14 @@
           "enum & switch expressions"
         ],
         [
+          "32_lambdas",
+          "Lambda expressions"
+        ],
+        [
+          "33_streams",
+          "Streams"
+        ],
+        [
           "28_hash_map",
           "HashMap & HashSet"
         ]

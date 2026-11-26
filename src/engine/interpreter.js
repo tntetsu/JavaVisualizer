@@ -14,7 +14,7 @@ import {
 } from 'js-interpreter/core';
 import {
   JavaError, JavaCompileError, makeDouble, makeChar, makeString, makeArray, javaCloneHook,
-  isInt, isLong, isDouble, isChar, isBool, isString, isArray, isList, isSet, isMap, isEntry, isNumeric, num, makeList, BOXES, baseType, boxType,
+  isInt, isLong, isDouble, isChar, isBool, isString, isArray, isList, isSet, isMap, isEntry, isLambda, isNumeric, num, makeList, BOXES, baseType, boxType,
   coerce, defaultValue, isPrimitiveType, isArrayType, elemTypeOf, javaStr, typeName,
 } from './values.js';
 import {
@@ -29,6 +29,10 @@ import {
   MAP_KINDS, SET_KINDS, constructMap, constructSet, callMapMethod, callSetMethod, callEntryMethod, createMapBuiltins,
   mapString, setString, entryString, mapHashCode, setHashCode, entryHashCode, entryEquals, sourceMap, VOID,
 } from './maps.js';
+import { nativeLambda, createFunctionBuiltins, functionalDefault } from './lambdas.js';
+import {
+  isStream, isOptional, isCollector, streamOf, callStreamMethod, callOptionalMethod, createStreamBuiltins, arraysStream, optionalString,
+} from './streams.js';
 
 const MAX_CALL_DEPTH = 3000;
 
@@ -298,9 +302,28 @@ export function createRuntime(recorder, classes, { stdin = '' } = {}) {
     equals: (a, b) => javaEquals(a, b, rt),
     compareTo: (a, b) => javaCompareTo(a, b, rt),
     hashCode: (v) => javaHashCode(v, rt),
+    // ラムダ式・関数型インターフェースの値を呼ぶ（forEach・sort などの組み込みのメソッドから。ADR-010）
+    makeArray: (t, xs) => makeArray(t, xs),
+    reverseOrder: (c) => (c === null ? functionalDefault(null, 'reverseOrder', [], rt.bctx) : functionalDefault(c, 'reversed', [], rt.bctx)),
+    call: (f, args, name) => {
+      // 組み込みのメソッド（forEach・sort など）がラムダ式を呼ぶ：呼んだ所（rt.callSite）に「ラムダ式の呼び出し」の
+      // イベント（LambdaCall）を記録し、その中で本体を実行する。「人」のステップが、各回で本体に入る・戻る所に止まる
+      const site = rt.callSite;
+      if (site && isLambda(f) && f.__fn.node) {
+        const fn = f.__fn;
+        if (!fn.callNode) fn.callNode = { type: 'LambdaCall', loc: fn.node.loc, end: fn.node.end, range: fn.node.range };
+        return rt.recorder.record(fn.callNode, site.env, site.depth, site.callDepth,
+          () => callFunctional(f, args, rt, site.depth + 1, site.callDepth, fn.node.loc, name));
+      }
+      const { depth, callDepth, loc } = site ?? currentDepths(rt);
+      return callFunctional(f, args, rt, depth, callDepth, loc ?? site?.loc, name);
+    },
   };
   for (const [k, v] of createCollectionBuiltins()) rt.builtins.set(k, v);
   for (const [k, v] of createMapBuiltins()) rt.builtins.set(k, v);
+  for (const [k, v] of createFunctionBuiltins()) rt.builtins.set(k, v);
+  for (const [k, v] of createStreamBuiltins()) rt.builtins.set(k, v);
+  rt.builtins.get('Arrays').members.stream = arraysStream;   // Arrays.stream(配列)（ADR-011）
   return rt;
 }
 
@@ -317,6 +340,11 @@ export function stringOf(v, rt) {
     if (isMap(o)) return mapString(o, rt.bctx);
     if (isSet(o)) return setString(o, rt.bctx);
     if (isEntry(o)) return entryString(o, rt.bctx);
+    if (isOptional(o)) return optionalString(o, rt.bctx);
+    // ストリーム（本物は java.util.stream.ReferencePipeline$Head@…）
+    if (isStream(o)) return `java.util.stream.${o.kind === 'Stream' ? 'ReferencePipeline' : o.kind.replace('Stream', 'Pipeline')}$Head@${identityHash(o, rt).toString(16)}`;
+    // ラムダ式の値（本物は Main$$Lambda/0x…@1b6d3586。数は本物と違う。ADR-010）
+    if (isLambda(o)) return `${o.__fn.ctx?.cls?.name ?? 'java.util.Comparator'}$$Lambda@${identityHash(o, rt).toString(16)}`;
     if (isStringBuilder(o)) return o.fields.value.s;
     if (isJObject(o)) {
       const m = findMethods(o.cls, 'toString').find(x => x.paramTypes.length === 0 && !x.static);
@@ -343,7 +371,7 @@ export function javaEquals(a, b, rt) {
   if (isMap(a)) return callMapMethod(a, 'equals', [b], rt.bctx) === true;
   if (isSet(a)) return callSetMethod(a, 'equals', [b], rt.bctx) === true;
   if (isEntry(a)) return entryEquals(a, b, rt.bctx);
-  if (isArray(a)) return a === b;
+  if (isArray(a) || isLambda(a)) return a === b;
   if (isJObject(a)) {
     const m = findMethods(a.cls, 'equals').find(x => !x.static && x.paramTypes.length === 1 && x.paramTypes[0] === 'Object');
     if (m) {
@@ -685,6 +713,124 @@ function assignConvert(v, t) {
     return coerce(v, t);
   }
   return v;
+}
+
+// ── ラムダ式・メソッド参照（ADR-010） ─────────────────────────────────────────
+
+/** ラムダ式の画面の表示（ƒ x -> x * 2。長いものは切り詰める） */
+const lambdaName = (text) => (text.length > 32 ? `${text.slice(0, 31)}…` : text);
+
+/**
+ * ラムダ式の値を作る。本物の Java と同じく、本体が使う外側の変数（静的な検査が captures に集めた名前）の値を、
+ * 作ったときに写しておく（実質的に final なので、写しても同じ値）
+ */
+function makeLambda(node, env, rt) {
+  const captured = [];
+  for (const name of node.captures ?? []) {
+    const s = localScope(name, env);
+    if (s && s.bindings.has(name)) captured.push([name, s.types.get(name), s.bindings.get(name)]);
+  }
+  const { cls, thisObj, method } = ctxOf(env);
+  const f = { __type__: 'JLambda', name: lambdaName(node.text) };
+  Object.defineProperty(f, '__fn', { value: { node, captured, ctx: { cls, thisObj, method }, arity: node.params.length }, enumerable: false });
+  return f;
+}
+
+/**
+ * メソッド参照の値を作る。Integer::sum・Main::isEven（static）、String::length（1 つ目の引数のメソッド）、
+ * System.out::println・obj::m（作ったときの値のメソッド）、Point::new（コンストラクタ）
+ */
+function makeMethodRef(node, env, rt, d, callDepth) {
+  const o = node.object;
+  // ArrayList::new・HashMap::new・StringBuilder::new（組み込みのクラスのコンストラクタ）
+  const lib = o.type === 'Identifier' && node.name === 'new' && !localScope(o.name, env) && !rt.classes.has(o.name) ? o.name : null;
+  if (lib && (lib === 'ArrayList' || lib === 'StringBuilder' || MAP_KINDS.has(lib) || SET_KINDS.has(lib))) {
+    const f = { __type__: 'JLambda', name: node.text };
+    const make = (args) => (lib === 'ArrayList' ? makeList(Array.isArray(args[0]) ? args[0] : [])
+      : lib === 'StringBuilder' ? makeStringBuilder(args, rt.bctx)
+        : MAP_KINDS.has(lib) ? constructMap(lib, args, {}, rt.bctx) : constructSet(lib, args, null, rt.bctx));
+    Object.defineProperty(f, '__fn', { value: { native: make }, enumerable: false });
+    return f;
+  }
+  const typeName = o.type === 'Identifier' && isTypeName(o, env, rt);
+  const target = typeName ? lookupName(o.name, env, rt, o.loc) : evaluate(o, env, rt, d + 1, callDepth);
+  if (!typeName && target === null) throw npe(node.loc);
+  const site = { loc: node.loc, end: node.end, callee: { loc: node.loc, object: null }, arguments: [] };
+  const name = node.name;
+  let arity;
+  let call;
+  if (typeName && name === 'new') {
+    call = (args, depth, cd, loc) => instantiate(target, args, rt, depth, cd, loc);
+  } else if (typeName && isClass(target)) {
+    const statics = findMethods(target, name).filter(m => m.static);
+    arity = statics[0]?.paramTypes.length ?? ((findMethods(target, name)[0]?.paramTypes.length ?? 0) + 1);
+    call = (args, depth, cd, loc) => {
+      const st = statics.filter(m => m.paramTypes.length === args.length);
+      if (st.length) { ensureInit(target, rt); return callMethod(chooseMethod(st, args, loc, name), null, args, rt, depth, cd, loc); }
+      return invokeOn(args[0], name, args.slice(1), { ...site, loc }, env, rt, depth, cd);
+    };
+  } else if (typeName && isBuiltin(target)) {
+    // Integer::sum・Math::max・String::valueOf は static、String::length・String::compareTo は 1 つ目の引数のメソッド
+    const isStatic = typeof target.members[name] === 'function';
+    arity = isStatic ? undefined : name === 'compareTo' || name === 'equals' || name === 'compareToIgnoreCase' ? 2 : 1;
+    call = (args, depth, cd, loc) => (isStatic ? invokeOn(target, name, args, { ...site, loc }, env, rt, depth, cd)
+      : invokeOn(args[0], name, args.slice(1), { ...site, loc }, env, rt, depth, cd));
+  } else {
+    call = (args, depth, cd, loc) => invokeOn(target, name, args, { ...site, loc }, env, rt, depth, cd);
+  }
+  const f = { __type__: 'JLambda', name: node.text };
+  Object.defineProperty(f, '__fn', { value: { ref: call, arity, node }, enumerable: false });
+  return f;
+}
+
+/**
+ * ラムダ式・メソッド参照・関数型インターフェースを実装した自作のオブジェクトを呼ぶ。
+ * name は抽象メソッドの名前（自作のオブジェクトのとき、どのメソッドを呼ぶか）
+ */
+function callFunctional(f, args, rt, depth, callDepth, loc, name) {
+  if (f === null || f === undefined) throw npe(loc);
+  if (isJObject(f)) {
+    const cands = findMethods(f.cls, name).filter(m => !m.static && m.body && m.paramTypes.length === args.length);
+    if (!cands.length) throw compileError(`クラス ${f.cls.name} にメソッド ${name} はありません`, loc, 'cannot find symbol');
+    return callMethod(dispatch(f, chooseMethod(cands, args, loc, name)), f, args, rt, depth, callDepth, loc);
+  }
+  const fn = f.__fn;
+  if (fn.native) {
+    try { return fn.native(args, rt.bctx); } catch (e) { if (e instanceof JavaError && !e.loc) e.loc = loc; throw e; }
+  }
+  if (fn.ref) return fn.ref(args, depth, callDepth, loc);
+  return callLambda(fn, args, rt, depth, callDepth, loc);
+}
+
+/** ラムダ式の本体を、新しいフレーム（名前は lambda）で実行する。とらえた変数は、フレームのローカル変数になる */
+function callLambda(fn, args, rt, depth, callDepth, loc) {
+  if (callDepth + 1 > MAX_CALL_DEPTH) throw new JavaError('StackOverflowError', null, loc);
+  const { node, captured } = fn;
+  const frame = { name: 'lambda', loc: loc || { line: 0, column: 0 }, args: null, callId: 0, varTypes: {}, globalTypes: rt.globalTypes };
+  const ctx = { ...fn.ctx, frame };
+  const fenv = new JScope(rt.global, 'function', ctx);
+  for (const [n, t, v] of captured) declare(fenv, n, t, v);
+  const types = node.paramTypes ?? [];
+  const vals = args.map((a, i) => assignConvert(a, types[i] ?? undefined));
+  node.params.forEach((p, i) => declare(fenv, p.name, types[i] ?? undefined, vals[i]));
+  rt.callCount += 1;
+  frame.args = vals.map(a => cloneValue(a));
+  frame.callId = rt.callCount;
+  rt.recorder.pushFrame(frame, fenv);
+  let v;
+  try {
+    // 式だけの本体は LambdaBody で包む（本体が呼び出しの式でも、「人」のステップが本体の始まりに止まる）
+    if (node.expression && !node.bodyNode) {
+      Object.defineProperty(node, 'bodyNode', { value: { type: 'LambdaBody', body: node.body, loc: node.body.loc, end: node.body.end, range: node.body.range }, enumerable: false });
+    }
+    const r = evaluate(node.expression ? node.bodyNode : node.body, fenv, rt, depth, callDepth + 1);
+    v = node.expression ? r : r instanceof ReturnSignal ? r.value : undefined;
+  } finally {
+    rt.recorder.popFrame();
+  }
+  const ret = node.returnType;
+  if (ret === 'void') return undefined;
+  return ret ? assignConvert(v, ret) : v;
 }
 
 /** ユーザーのメソッド・コンストラクタを呼ぶ */
@@ -1240,6 +1386,10 @@ function _eval(node, env, rt, depth, callDepth) {
 
     case 'CallExpression': return evalCall(node, env, rt, d, callDepth);
 
+    case 'LambdaExpression': return makeLambda(node, env, rt);
+    case 'LambdaBody': return ev(node.body);
+    case 'MethodReference': return makeMethodRef(node, env, rt, d, callDepth);
+
     case 'NewExpression': {
       const name = node.callee.name;
       if ((name === 'ArrayList' || name === 'StringBuilder') && !rt.classes.has(name)) {
@@ -1361,6 +1511,26 @@ function evalCall(node, env, rt, d, callDepth) {
     return calleeValue(obj, name, rt);
   });
   const args = evArgs();
+  return invokeOn(obj, name, args, node, env, rt, d, callDepth);
+}
+
+/**
+ * obj.name(args) を、受け手の値の種類ごとに呼ぶ（evalCall と、メソッド参照 System.out::println などから。ADR-010）。
+ * node は呼び出しの式（メソッド参照からは、位置と callee だけを持つノード）
+ */
+function invokeOn(obj, name, args, node, env, rt, d, callDepth) {
+  // 組み込みのメソッドがラムダ式を呼ぶときの、呼んだ所（ctx.call が使う。入れ子の呼び出しのために戻す）
+  const saved = rt.callSite;
+  rt.callSite = { env, depth: d + 1, callDepth, loc: node.loc };
+  try {
+    return invokeOnInner(obj, name, args, node, env, rt, d, callDepth);
+  } finally {
+    rt.callSite = saved;
+  }
+}
+
+function invokeOnInner(obj, name, args, node, env, rt, d, callDepth) {
+  const callee = node.callee;
   if (isBuiltin(obj)) {
     const f = obj.members[name];
     if (typeof f !== 'function') throw compileError(`${obj.name}.${name}(…) はありません（まだ対応していないメソッドかもしれません）`, callee.loc, 'cannot find symbol');
@@ -1419,13 +1589,26 @@ function evalCall(node, env, rt, d, callDepth) {
       }
     }
     if (name === 'compareTo' && isSubtypeName(obj.cls, 'Comparable')) return javaCompareTo(obj, args[0], rt);
+    if (isSubtypeName(obj.cls, 'Comparator')) { const r = functionalDefault(obj, name, args, rt.bctx); if (r !== undefined) return r; }
     return objectMethod(obj, name, args, rt, node.loc);
+  }
+  // ラムダ式の値：抽象メソッド（apply・test・compare・自作のインターフェースのメソッドなど）は本体を呼ぶ。
+  // reversed・negate などは新しい値を作る（ADR-010）
+  if (isLambda(obj)) {
+    try {
+      const r = functionalDefault(obj, name, args, rt.bctx);
+      if (r !== undefined) return r;
+    } catch (e) { if (e instanceof JavaError && !e.loc) e.loc = node.loc; throw e; }
+    return callFunctional(obj, args, rt, d, callDepth, node.loc, name);
   }
   if (isArray(obj) && name === 'clone') return makeArray(obj.__jelem, obj);
   // リスト・StringBuilder・ラッパー型（Integer など）のメソッド（ADR-007）
   let r;
   try {
-    if (isList(obj)) r = callListMethod(obj, name, args, rt.bctx, node.argTypes);
+    if ((isList(obj) || isSet(obj)) && name === 'stream') r = streamOf(obj);   // ADR-011
+    else if (isStream(obj)) r = callStreamMethod(obj, name, args, rt.bctx);
+    else if (isOptional(obj)) r = callOptionalMethod(obj, name, args, rt.bctx);
+    else if (isList(obj)) r = callListMethod(obj, name, args, rt.bctx, node.argTypes);
     else if (isMap(obj)) r = callMapMethod(obj, name, args, rt.bctx, makeList);
     else if (isSet(obj)) r = callSetMethod(obj, name, args, rt.bctx);
     else if (isEntry(obj)) r = callEntryMethod(obj, name, args, rt.bctx);
@@ -1466,6 +1649,7 @@ function nativeValue(rt, name) {
 
 /** obj.name(…) の呼び出し先の値 */
 function calleeValue(obj, name, rt) {
+  if (isLambda(obj)) return obj;   // f.apply(3) の呼び出し先は、ラムダ式の値（ƒ x -> x * 2）
   if (isBuiltin(obj)) return typeof obj.members[name] === 'function' ? obj.members[name] : nativeValue(rt, name);
   if (isClass(obj)) {
     const cands = findMethods(obj, name).filter(x => x.static);

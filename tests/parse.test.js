@@ -67,7 +67,7 @@ for (const [body, line, text] of SYNTAX) {
 }
 
 const UNSUPPORTED = [
-  ['        Runnable r = () -> {};', 'ラムダ式'],
+  ['        Object o = new Object() { };', '匿名クラス'],   // ラムダ式は Phase 5 で対応した（ADR-010）
   ['        float f = 1;', null],   // float は検査（check.js）で「まだ対応していません」
 ];
 

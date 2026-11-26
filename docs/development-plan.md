@@ -76,10 +76,12 @@ Java は実行の前にコンパイルし、型の誤りなどを見つける。
 
 **Phase 4（2026-11-26、[phase4-report.md](phase4-report.md)）**：サンプル 24 本（JS 版の 21 本に対応＋Java 向け 3 本）、マニュアル（日本語・英語）、README（日本語・英語）、GitHub Actions のワークフロー（push ではテストとビルドだけ、公開は手動）。全サンプル × 全タブでブラウザのエラー 0 件。
 
-**Phase 5（2026-11-26、[phase5-report.md](phase5-report.md)）**：比較テストがすべて通る（テスト 359 件、サンプル 28 本）。公開版はまだ Phase 4 の時点のまま。
+**Phase 5（2026-11-26、[phase5-report.md](phase5-report.md)）**：比較テストがすべて通る（テスト 413 件、サンプル 30 本）。公開版はまだ Phase 4 の時点のまま。
 - 済み：`ArrayList`・`List.of`・`Collections`・`StringBuilder`・ラッパー型とジェネリクスの型（[ADR-007](adr/ADR-007-collections-and-wrappers.md)）、抽象クラス・インターフェース・`Comparable`・`enum`・`switch` 式・`instanceof` のパターン・入れ子の型（[ADR-008](adr/ADR-008-interfaces-enums-switch.md)）、`HashMap`・`HashSet`・`TreeMap`・`LinkedHashMap`・`TreeSet`・`LinkedHashSet`・`Map.of`・`Set.of`・`Map.Entry`（繰り返しの順序を本物と同じにする。`Integer` の `null` を取り出したときの `NullPointerException` の文面、`ConcurrentModificationException`。[ADR-009](adr/ADR-009-maps-and-sets.md)）、サンプル `28_hash_map`
 - 済み：サンプル（`29_interfaces`・`31_enum_switch`）、マニュアル・README の「使える Java の範囲」の更新、報告書
-- 残り：公開（手動の実行。実行の前に確認を取る）、ラムダ式（必要なら。`map.merge`・`forEach`・`Comparator` に要る）
+- 済み：ラムダ式・メソッド参照・関数型インターフェース（`forEach`・`sort`・`merge`・`Comparator` など。[ADR-010](adr/ADR-010-lambdas.md)）、サンプル `32_lambdas`
+- 済み：ストリーム（遅延評価を本物と同じ順序で）・`Optional`・`Collectors`（[ADR-011](adr/ADR-011-streams.md)）、サンプル `33_streams`
+- 残り：公開（手動の実行。実行の前に確認を取る）
 
 ## 5. MVP の対象範囲（Phase 2）
 

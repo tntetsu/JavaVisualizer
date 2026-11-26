@@ -59,11 +59,74 @@ const LIST_TYPES = new Set(['ArrayList', 'List']);
 const SET_TYPES = new Set(['HashSet', 'LinkedHashSet', 'TreeSet', 'Set', 'Collection']);
 const MAP_TYPES = new Set(['HashMap', 'LinkedHashMap', 'TreeMap', 'Map']);
 /** 拡張 for で繰り返せるコレクション（リスト・集合・values() の Collection） */
+/**
+ * 関数型インターフェース（ラムダ式・メソッド参照を入れられる型。ADR-010）：型引数 → 抽象メソッドの名前・引数の型・戻り値の型。
+ * 型引数が分からないものは null（検査を見送る）
+ */
+const FUNCTIONAL = {
+  Function: (a) => ({ name: 'apply', params: [a[0]], ret: a[1] }),
+  BiFunction: (a) => ({ name: 'apply', params: [a[0], a[1]], ret: a[2] }),
+  UnaryOperator: (a) => ({ name: 'apply', params: [a[0]], ret: a[0] }),
+  BinaryOperator: (a) => ({ name: 'apply', params: [a[0], a[0]], ret: a[0] }),
+  Predicate: (a) => ({ name: 'test', params: [a[0]], ret: 'boolean' }),
+  BiPredicate: (a) => ({ name: 'test', params: [a[0], a[1]], ret: 'boolean' }),
+  Consumer: (a) => ({ name: 'accept', params: [a[0]], ret: 'void' }),
+  BiConsumer: (a) => ({ name: 'accept', params: [a[0], a[1]], ret: 'void' }),
+  Supplier: (a) => ({ name: 'get', params: [], ret: a[0] }),
+  IntBinaryOperator: () => ({ name: 'applyAsInt', params: ['int', 'int'], ret: 'int' }),
+  IntUnaryOperator: () => ({ name: 'applyAsInt', params: ['int'], ret: 'int' }),
+  IntPredicate: () => ({ name: 'test', params: ['int'], ret: 'boolean' }),
+  IntFunction: (a) => ({ name: 'apply', params: ['int'], ret: a[0] }),
+  IntConsumer: () => ({ name: 'accept', params: ['int'], ret: 'void' }),
+  ToIntFunction: (a) => ({ name: 'applyAsInt', params: [a[0]], ret: 'int' }),
+  ToDoubleFunction: (a) => ({ name: 'applyAsDouble', params: [a[0]], ret: 'double' }),
+  DoubleUnaryOperator: () => ({ name: 'applyAsDouble', params: ['double'], ret: 'double' }),
+  DoublePredicate: () => ({ name: 'test', params: ['double'], ret: 'boolean' }),
+  DoubleConsumer: () => ({ name: 'accept', params: ['double'], ret: 'void' }),
+  DoubleBinaryOperator: () => ({ name: 'applyAsDouble', params: ['double', 'double'], ret: 'double' }),
+  Runnable: () => ({ name: 'run', params: [], ret: 'void' }),
+  Comparator: (a) => ({ name: 'compare', params: [a[0], a[0]], ret: 'int' }),
+};
+/** java.util.function のインターフェース（import が要る） */
+const FUNCTION_PKG = new Set(Object.keys(FUNCTIONAL).filter(k => k !== 'Runnable' && k !== 'Comparator'));
+/** 関数型インターフェースの、抽象メソッドでないメソッド（Comparator の reversed など）の戻り値の型 */
+const FUNCTIONAL_DEFAULTS = {
+  Comparator: { reversed: 'self', thenComparing: 'self', thenComparingInt: 'self', thenComparingDouble: 'self' },
+  Predicate: { negate: 'self', and: 'self', or: 'self' },
+  BiPredicate: { negate: 'self', and: 'self', or: 'self' },
+  Function: { andThen: null, compose: null },
+  BiFunction: { andThen: null },
+  Consumer: { andThen: 'self' },
+};
+
+/**
+ * 型 t が関数型インターフェースなら、その抽象メソッドの { name, params, ret }。そうでなければ null。
+ * 自作のインターフェースは、抽象メソッドがちょうど 1 つのもの
+ */
+function fiDescriptor(t, classes) {
+  if (!t || typeof t !== 'string') return null;
+  const base = baseType(t);
+  // 型引数の _ は「分からない」（Stream の map(x -> …) の戻り値の型など。ADR-011）
+  if (FUNCTIONAL[base] && !classes.has(base)) return FUNCTIONAL[base](typeArgs(t).map(x => (x === '_' ? null : x ?? null)));
+  const cls = classes.get(base);
+  if (!cls || cls.kind !== 'interface') return null;
+  const abs = lookupOrder(cls).flatMap(k => [...k.methods.values()].flat()).filter(m => !m.body && !m.static);
+  if (abs.length !== 1) return null;
+  return { name: abs[0].name, params: abs[0].paramTypes, ret: abs[0].returnType };
+}
+
+/** ストリーム・Optional の型（ADR-011） */
+const STREAM_TYPES = new Set(['Stream', 'IntStream', 'DoubleStream', 'Optional', 'OptionalInt', 'OptionalDouble']);
+
+/** ラムダ式・メソッド参照のノードか */
+const isFn = (n) => n && (n.type === 'LambdaExpression' || n.type === 'MethodReference');
+
 /** javac のメッセージの、メソッドの持ち主の書き方（interface Map<K,V>・class HashSet<E>） */
 const ownerText = (base) => `${/^(Map|Set|Collection|List)$/.test(base) ? 'interface' : 'class'} ${base}<${MAP_TYPES.has(base) ? 'K,V' : 'E'}>`;
 const isIterableType = (t) => t !== null && (LIST_TYPES.has(baseType(t)) || SET_TYPES.has(baseType(t)));
 
 function assignable(from, to, classes, node) {
+  if (from === '<lambda>') return to === null || fiDescriptor(to, classes) !== null;   // ラムダ式は関数型インターフェースに入る
   if (from === null || to === null || to === 'var') return true;
   if (from === to) return true;
   if (isPrimitiveType(to)) {
@@ -101,6 +164,21 @@ function markUnbox(node, from, to) {
   }
 }
 
+/**
+ * 型の合わない初期化・代入。ジェネリクスのメソッドの結果（stream().map(…)・collect(…)）は、javac が型変数の推論の文面で書く（ADR-011）
+ */
+function incompatibleValue(from, to, node) {
+  const name = node?.type === 'CallExpression' && node.callee.type === 'MemberExpression' ? node.callee.property.name : null;
+  if ((name === 'map' || name === 'mapToObj') && from?.startsWith('Stream')) {
+    return err(`ストリーム（${from}）は ${to} の変数に入れられません（リストにするには collect(Collectors.toList()) か toList() を使います）`, node.loc,
+      `incompatible types: no instance(s) of type variable(s) R exist so that Stream<R> conforms to ${to}`);
+  }
+  if (name === 'collect' && from && baseType(from) === baseType(to)) {
+    return err(`集めた結果（${from}）は ${to} の変数に入れられません（要素の型が違います）`, node.loc, 'incompatible types: inference variable T has incompatible bounds');
+  }
+  return incompatible(from, to, node.loc);
+}
+
 function incompatible(from, to, loc) {
   if (isNumericType(from) && isNumericType(to)) {
     return err(`${from} の値を ${to} の変数に入れると、値が失われるおそれがあります（入れるなら (${to}) でキャストします）`, loc,
@@ -130,14 +208,17 @@ const STATIC_RETURNS = {
     max: (args) => (args.includes(null) ? null : promote(args[0], args[1])),
     min: (args) => (args.includes(null) ? null : promote(args[0], args[1])),
   },
-  Integer: { parseInt: 'int', valueOf: 'Integer', toString: 'String', toBinaryString: 'String', toHexString: 'String', compare: 'int', sum: 'int' },
+  Integer: { parseInt: 'int', valueOf: 'Integer', toString: 'String', toBinaryString: 'String', toHexString: 'String', compare: 'int', sum: 'int', max: 'int', min: 'int' },
   Double: { parseDouble: 'double', toString: 'String', isNaN: 'boolean', compare: 'int' },
   Character: {
     isDigit: 'boolean', isLetter: 'boolean', isLetterOrDigit: 'boolean', isUpperCase: 'boolean', isLowerCase: 'boolean',
     isWhitespace: 'boolean', toUpperCase: 'char', toLowerCase: 'char', getNumericValue: 'int',
   },
   String: { valueOf: 'String', format: 'String', join: 'String' },
-  Arrays: { toString: 'String', sort: 'void', fill: 'void' },
+  Arrays: {
+    toString: 'String', sort: 'void', fill: 'void',
+    stream: (args) => (args[0] === 'int[]' ? 'IntStream' : args[0] === 'double[]' ? 'DoubleStream' : args[0] && isArrayType(args[0]) ? `Stream<${elemTypeOf(args[0])}>` : 'Stream'),
+  },
   List: { of: (args) => `List<${args.length && args.every(a => a === args[0]) && args[0] ? boxType(args[0]) : 'Object'}>` },
   Set: { of: (args) => `Set<${args.length && args.every(a => a === args[0]) && args[0] ? boxType(args[0]) : 'Object'}>` },
   Map: {
@@ -147,7 +228,21 @@ const STATIC_RETURNS = {
     },
     entry: (args) => `Entry<${args[0] ? boxType(args[0]) : 'Object'},${args[1] ? boxType(args[1]) : 'Object'}>`,
   },
+  Stream: {
+    of: (args) => `Stream<${args.length && args.every(a => a === args[0]) && args[0] ? boxType(args[0]) : 'Object'}>`,
+    iterate: (args) => (args[0] ? `Stream<${boxType(args[0])}>` : 'Stream'), empty: 'Stream',
+  },
+  IntStream: { range: 'IntStream', rangeClosed: 'IntStream', of: 'IntStream', iterate: 'IntStream' },
+  Collectors: {
+    toList: 'Collector:toList', toSet: 'Collector:toSet', joining: 'Collector:joining', counting: 'Collector:counting',
+    summingInt: 'Collector:summingInt', averagingInt: 'Collector:averagingInt', groupingBy: 'Collector:groupingBy',
+    partitioningBy: 'Collector:partitioningBy', toMap: 'Collector:toMap',
+  },
+  Comparator: {
+    comparing: 'Comparator', comparingInt: 'Comparator', comparingDouble: 'Comparator', naturalOrder: 'Comparator', reverseOrder: 'Comparator',
+  },
   Collections: {
+    reverseOrder: 'Comparator',
     sort: 'void', reverse: 'void', swap: 'void', frequency: 'int',
     max: (args) => (args[0] ? typeArgs(args[0])[0] ?? null : null),
     min: (args) => (args[0] ? typeArgs(args[0])[0] ?? null : null),
@@ -185,16 +280,20 @@ const SCANNER_METHODS = {
 };
 
 /** java.util のクラス（import が要る） */
-const JAVA_UTIL = new Set(['Scanner', 'Arrays', 'ArrayList', 'List', 'Collections', 'Collection',
+const JAVA_UTIL = new Set(['Scanner', 'Arrays', 'ArrayList', 'List', 'Collections', 'Collection', 'Comparator', 'Optional', 'OptionalInt', 'OptionalDouble',
   'Map', 'HashMap', 'TreeMap', 'LinkedHashMap', 'Set', 'HashSet', 'TreeSet', 'LinkedHashSet']);
 
-/** import した java.util のクラスの名前（import java.util.*; はすべて） */
+/** java.util.stream のクラス（import が要る。ADR-011） */
+const STREAM_PKG = new Set(['Stream', 'IntStream', 'DoubleStream', 'Collectors']);
+
+/** import した java.util・java.util.function・java.util.stream のクラスの名前（import java.util.*; はすべて） */
 function importedUtil(imports) {
   const out = new Set();
   for (const line of imports ?? []) {
-    const m = line.match(/^import\s+java\.util\.(\*|\w+)\s*;/);
+    const m = line.match(/^import\s+java\.util\.(?:(function|stream)\.)?(\*|\w+)\s*;/);
     if (!m) continue;
-    if (m[1] === '*') JAVA_UTIL.forEach(n => out.add(n)); else out.add(m[1]);
+    const all = m[1] === 'function' ? FUNCTION_PKG : m[1] === 'stream' ? STREAM_PKG : JAVA_UTIL;
+    if (m[2] === '*') all.forEach(n => out.add(n)); else out.add(m[2]);
   }
   return out;
 }
@@ -465,8 +564,23 @@ function markSignature(n, m) {
 // ── 型の推論 ──────────────────────────────────────────────────────────────────
 
 class Locals {
-  constructor(parent = null) { this.parent = parent; this.vars = new Map(); }
+  /** @param {object} [lambda] このスコープがラムダ式の本体なら、そのノード（外側の変数を使うと「とらえる」） */
+  constructor(parent = null, lambda = null) { this.parent = parent; this.vars = new Map(); this.info = new Map(); this.lambda = lambda; }
   get(name) { for (let s = this; s; s = s.parent) if (s.vars.has(name)) return s.vars.get(name); return undefined; }
+  /** 宣言したスコープと、間にあるラムダ式（内側から順） */
+  find(name) {
+    const lambdas = [];
+    for (let s = this; s; s = s.parent) {
+      if (s.vars.has(name)) return { scope: s, type: s.vars.get(name), lambdas };
+      if (s.lambda) lambdas.push(s.lambda);
+    }
+    return null;
+  }
+  /** 変数の代入の数え（実質的に final か。ADR-010）。初期化子なしの宣言は noInit */
+  infoOf(name) {
+    if (!this.info.has(name)) this.info.set(name, { noInit: false, compound: 0, assigns: 0 });
+    return this.info.get(name);
+  }
 }
 
 /**
@@ -489,6 +603,13 @@ export function check(ast, classes) {
         throw err(`クラス ${cls.name} は Comparable を実装すると書いていますが、compareTo メソッドがありません`, cls.node.loc,
           `${cls.name} is not abstract and does not override abstract method compareTo(${cls.name}) in Comparable`);
       }
+      // Comparator<T> の compare(a, b)・Runnable の run()（ADR-010）
+      const builtinAbs = k.builtin && { Comparator: ['compare', 2], Runnable: ['run', 0] }[k.name];
+      if (builtinAbs && !lookupOrder(cls).some(c => (c.methods.get(builtinAbs[0]) ?? []).some(m => m.body && !m.static && m.paramTypes.length === builtinAbs[1]))) {
+        const T = typeArgs((cls.node.interfaces ?? []).find(t => baseType(t) === k.name) ?? '')[0] ?? 'Object';
+        throw err(`クラス ${cls.name} は ${k.name} を実装すると書いていますが、${builtinAbs[0]} メソッドがありません`, cls.node.loc,
+          `${cls.name} is not abstract and does not override abstract method ${builtinAbs[0]}(${builtinAbs[1] ? `${T},${T}` : ''}) in ${k.name}`);
+      }
       for (const m of [...k.methods.values()].flat()) {
         if (m.body || m.static || concrete(m.name, m.paramTypes.join(','))) continue;
         throw err(`クラス ${cls.name} は、${k.kind === 'interface' ? 'インターフェース' : 'クラス'} ${k.name} の抽象メソッド ${m.name}(${m.paramTypes.join(', ')}) を実装していません（abstract のクラスにするか、メソッドを書きます）`,
@@ -507,10 +628,22 @@ export function check(ast, classes) {
 
   /** final のローカル変数の名前（メソッドごとに作り直す） */
   let finals = new Set();
+  /** ラムダ式がとらえた外側の変数（{ scope, name, loc }）。メソッドの最後に、実質的に final かを調べる（ADR-010） */
+  let captured = [];
+  function checkCaptured() {
+    for (const c of captured) {
+      const i = c.scope.infoOf(c.name);
+      // 初期化子つきの宣言は一度も入れ直さないこと。初期化子なしは += や ++ を使わないこと（何度かの = はゆるめに通す）
+      if ((i.noInit ? i.compound > 0 : i.assigns + i.compound > 0)) {
+        throw err(`ラムダ式の中で使う外側の変数 ${c.name} は、値を入れ直してはいけません（final か、入れ直さない変数だけを使えます）`, c.loc, 'local variables referenced from a lambda expression must be final or effectively final');
+      }
+    }
+  }
   const imported = importedUtil(ast.imports);
   const needImport = (name, loc) => {
-    if (JAVA_UTIL.has(name) && !classes.has(name) && !imported.has(name)) {
-      throw err(`${name} を使うには、ファイルの先頭に import java.util.${name}; を書きます`, loc, 'cannot find symbol');
+    const pkg = JAVA_UTIL.has(name) ? 'java.util' : FUNCTION_PKG.has(name) ? 'java.util.function' : STREAM_PKG.has(name) ? 'java.util.stream' : null;
+    if (pkg && !classes.has(name) && !imported.has(name)) {
+      throw err(`${name} を使うには、ファイルの先頭に import ${pkg}.${name}; を書きます`, loc, 'cannot find symbol');
     }
   };
   for (const cls of classes.values()) {
@@ -518,7 +651,7 @@ export function check(ast, classes) {
     for (const f of cls.fields) {
       if (!f.init) continue;
       inferDiamond(f.init, f.type);
-      const t = expr(f.init, new Locals(), { ...fieldCtx, isStatic: f.static });
+      const t = exprT(f.init, f.type, new Locals(), { ...fieldCtx, isStatic: f.static });
       if (!assignable(t, f.type, classes, f.init)) throw incompatible(t, f.type, f.init.loc);
       markUnbox(f.init, t, f.type);
     }
@@ -530,7 +663,9 @@ export function check(ast, classes) {
       // handled：いま捕まえられる例外の型（外側の try の catch と、メソッドの throws）。内側の try で積む
       const ctx = { cls, isStatic: m.static, method: m, handled: [...(m.throws ?? [])] };
       finals = new Set();
+      captured = [];
       stmt(m.body, locals, ctx);
+      checkCaptured();
       checkFlow(m.body, m.params);
       if (m.returnType && m.returnType !== 'void' && canComplete(m.body)) {
         throw err(`メソッド ${m.name} の最後まで進むと、値を返さずに終わってしまいます（return で ${m.returnType} の値を返します）`,
@@ -549,16 +684,25 @@ export function check(ast, classes) {
     if (isPrimitiveType(base) || base === 'var' || base === 'void' || base === 'String' || base === 'Object') return;
     if (base === 'Scanner' || COLL_SUPER[base]) { needImport(base === 'Entry' ? 'Map' : base, loc); return; }
     if (base === 'StringBuilder') return;
+    if (FUNCTIONAL[base] && !classes.has(base)) { needImport(base, loc); return; }
+    if (STREAM_TYPES.has(base) && !classes.has(base)) { needImport(base, loc); return; }
     if (classes.has(base) || BUILTIN_CLASSES.has(base) || BOXES[base]) return;
     throw err(`型 ${base} が見つかりません（クラス名のつづりを確かめてください）`, loc, 'cannot find symbol');
   }
 
   /** final の変数への代入をコンパイルエラーにする（ローカル変数と、初期化子のある final のフィールド） */
-  function requireAssignable(target, locals, ctx) {
+  function requireAssignable(target, locals, ctx, compound = false) {
     if (target.type !== 'Identifier' && !(target.type === 'MemberExpression' && !target.computed)) return;
     const name = target.type === 'Identifier' ? target.name : target.property.name;
     if (target.type === 'Identifier' && locals.get(name) !== undefined) {
+      const f = locals.find(name);
+      // ラムダ式の中から、外側の変数に値を入れる（sum += x の形。ADR-010）
+      if (f.lambdas.length) {
+        throw err(`ラムダ式の中から、外側の変数 ${name} に値を入れることはできません`, target.loc, 'local variables referenced from a lambda expression must be final or effectively final');
+      }
       if (finals.has(name)) throw err(`final の変数 ${name} には、値を入れ直せません`, target.loc, `cannot assign a value to final variable ${name}`);
+      const info = f.scope.infoOf(name);
+      if (compound) info.compound++; else info.assigns++;
       return;
     }
     let cls = ctx.cls;
@@ -580,6 +724,94 @@ export function check(ast, classes) {
     if ((ctx.handled ?? []).some(h => assignable(t, h, classes))) return;
     throw err(`例外 ${t} は、try … catch で捕まえるか、メソッドに throws ${t} と書く必要があります`, loc,
       `unreported exception ${t}; must be caught or declared to be thrown`);
+  }
+
+  /** 式を、入れる先の型 target で調べる（ラムダ式・メソッド参照は target が要る。ADR-010） */
+  function exprT(n, target, locals, ctx) {
+    return isFn(n) ? checkFn(n, target, locals, ctx) : expr(n, locals, ctx);
+  }
+
+  /**
+   * ラムダ式・メソッド参照を、入れる先の型 target（関数型インターフェース。分からなければ null）で調べる。
+   * ラムダ式の引数の型・戻り値の型・とらえた変数の名前を、評価器のための印としてノードに付ける
+   */
+  function checkFn(n, target, locals, ctx) {
+    const fd = target ? fiDescriptor(target, classes) : null;
+    if (target && target !== 'var' && !fd) {
+      throw err(`${target} は関数型インターフェースではないので、${n.type === 'MethodReference' ? 'メソッド参照' : 'ラムダ式'}は入れられません`, n.loc,
+        `incompatible types: ${target} is not a functional interface`);
+    }
+    if (n.type === 'MethodReference') { checkMethodRef(n, fd, locals, ctx); return target ?? '<lambda>'; }
+    if (fd && fd.params.length !== n.params.length) {
+      throw err(`ラムダ式の引数の数（${n.params.length} 個）が、${baseType(target)} の ${fd.name} の引数の数（${fd.params.length} 個）と合いません`, n.loc,
+        'incompatible types: incompatible parameter types in lambda expression');
+    }
+    Object.defineProperty(n, 'captures', { value: new Set(), enumerable: false, configurable: true });
+    const inner = new Locals(locals, n);
+    const types = n.params.map((p, i) => {
+      if (p.varType) knownType(p.varType, p.loc);
+      if (locals.get(p.name) !== undefined) throw redeclared(p.name, p.loc, ctx);
+      const t = p.varType ?? fd?.params[i] ?? null;
+      inner.vars.set(p.name, t);
+      return t;
+    });
+    const ret = fd ? fd.ret : null;
+    markType(n, 'paramTypes', types);
+    markType(n, 'returnType', ret);
+    const lctx = { ...ctx, lambda: { ret, returns: [] }, yields: undefined, collectorElem: undefined };
+    if (n.expression) {
+      const t = exprT(n.body, ret === 'void' ? null : ret, inner, lctx);
+      markType(n, 'bodyType', t);
+      if (ret === 'void') {
+        // void の関数型インターフェース（Consumer・Runnable）の本体は、文として書ける式（呼び出し・代入・++ など）だけ
+        if (!/^(CallExpression|AssignmentExpression|UpdateExpression|NewExpression)$/.test(n.body.type)) {
+          throw err(`${baseType(target)} のラムダ式は値を返しません（${baseType(target)} の ${fd.name} は void です）`, n.body.loc,
+            'incompatible types: lambda body is not compatible with a void functional interface');
+        }
+      } else if (ret && !assignable(t, ret, classes, n.body)) {
+        throw err(`ラムダ式は ${ret} の値を返します（${t} の値は返せません）`, n.body.loc, 'incompatible types: bad return type in lambda expression');
+      } else markUnbox(n.body, t, ret);
+    } else {
+      stmt(n.body, inner, lctx);
+      markType(n, 'bodyType', lctx.lambda.returns.find(t => t !== null) ?? (canComplete(n.body) ? 'void' : null));
+      if (ret && ret !== 'void' && canComplete(n.body)) {
+        throw err(`ラムダ式の最後まで進むと、値を返さずに終わってしまいます（return で ${ret} の値を返します）`, n.loc,
+          'incompatible types: bad return type in lambda expression');
+      }
+    }
+    return target ?? '<lambda>';
+  }
+
+  /** メソッド参照（Integer::sum・String::length・System.out::println・Main::isEven・Point::new）の、メソッドがあるか */
+  function checkMethodRef(n, fd, locals, ctx) {
+    const o = n.object;
+    const invalid = () => err(`メソッド参照 ${n.text} のメソッドが見つかりません`, n.loc, 'invalid method reference');
+    // 本体の型（呼ぶメソッドの戻り値の型）を、map(String::length) などの結果の型に使う（ADR-011）
+    const body = (t) => markType(n, 'bodyType', typeof t === 'string' ? t : null);
+    const isTypeName = o.type === 'Identifier' && locals.get(o.name) === undefined && !instanceFields(ctx.cls).some(f => f.name === o.name);
+    if (!isTypeName) {
+      const ot = expr(o, locals, ctx);
+      if (ot === 'PrintStream') body('void');
+      else if (ot && classes.get(baseType(ot))) body(findMethods(classes.get(baseType(ot)), n.name)[0]?.returnType);
+      return;
+    }
+    knownType(o.name, o.loc);
+    const cls = classes.get(o.name);
+    if (cls) {
+      if (n.name === 'new') { body(o.name); return; }
+      if (!findMethods(cls, n.name).length) throw invalid();
+      body(findMethods(cls, n.name)[0].returnType);
+      return;
+    }
+    if (o.name === 'String') {
+      if (n.name !== 'valueOf' && !(n.name in STRING_METHODS)) throw invalid();
+      body(n.name === 'valueOf' ? 'String' : STRING_METHODS[n.name]);
+      return;
+    }
+    if (STATIC_RETURNS[o.name] || BOXES[o.name]) {
+      if (!(STATIC_RETURNS[o.name]?.[n.name]) && !(n.name in WRAPPER_METHODS)) throw invalid();
+      body(STATIC_RETURNS[o.name]?.[n.name] ?? WRAPPER_METHODS[n.name]);
+    }
   }
 
   function cond(n, locals, ctx) {
@@ -606,12 +838,16 @@ export function check(ast, classes) {
           let t = d.varType;
           if (d.init) {
             inferDiamond(d.init, t);
-            const vt = expr(d.init, locals, ctx);
+            if (t === 'var' && isFn(d.init)) {
+              throw err(`var の変数 ${d.id.name} にはラムダ式を入れられません（Function<Integer, Integer> などの型を書きます）`, d.loc, `cannot infer type for local variable ${d.id.name}`);
+            }
+            const vt = exprT(d.init, t, locals, ctx);
             if (t === 'var') t = vt;
-            else if (!assignable(vt, t, classes, d.init)) throw incompatible(vt, t, d.init.loc);
+            else if (!assignable(vt, t, classes, d.init)) throw incompatibleValue(vt, t, d.init);
             markUnbox(d.init, vt, t);
           }
           locals.vars.set(d.id.name, t);
+          if (!d.init) locals.infoOf(d.id.name).noInit = true;
           if (s.kind === 'const') finals.add(d.id.name);
         }
         return;
@@ -650,13 +886,18 @@ export function check(ast, classes) {
         return;
       }
       case 'ReturnStatement': {
-        const rt = ctx.method?.returnType ?? null;
+        // ラムダ式の本体の return は、ラムダ式の戻り値の型（ADR-010）
+        const rt = ctx.lambda ? ctx.lambda.ret : ctx.method?.returnType ?? null;
         if (!s.argument) {
           if (rt && rt !== 'void') throw err(`このメソッドは ${rt} の値を返します（return の後ろに値を書きます）`, s.loc, 'missing return value');
           return;
         }
-        const t = expr(s.argument, locals, ctx);
-        if (rt === 'void' || (ctx.method && ctx.method.kind === 'constructor')) {
+        const t = exprT(s.argument, rt, locals, ctx);
+        if (ctx.lambda) ctx.lambda.returns.push(t);
+        if (ctx.lambda && rt !== 'void' && !assignable(t, rt, classes, s.argument)) {
+          throw err(`ラムダ式は ${rt} の値を返します（${t} の値は返せません）`, s.argument.loc, 'incompatible types: bad return type in lambda expression');
+        }
+        if (rt === 'void' || (!ctx.lambda && ctx.method && ctx.method.kind === 'constructor')) {
           throw err('void のメソッドからは値を返せません（return; だけを書きます）', s.argument.loc, 'incompatible types: unexpected return value');
         }
         if (!assignable(t, rt, classes, s.argument)) throw incompatible(t, rt, s.argument.loc);
@@ -692,8 +933,15 @@ export function check(ast, classes) {
 
   /** 名前の型（ローカル → フィールド → クラス） */
   function nameType(name, locals, ctx, loc) {
-    const lt = locals.get(name);
-    if (lt !== undefined) return lt;
+    const found = locals.find(name);
+    if (found) {
+      // ラムダ式の外側の変数：間にあるラムダ式すべてがとらえる（評価器が、作るときに値を写す。ADR-010）
+      if (found.lambdas.length) {
+        captured.push({ scope: found.scope, name, loc });
+        for (const lam of found.lambdas) lam.captures.add(name);
+      }
+      return found.type;
+    }
     const inst = instanceFields(ctx.cls).find(f => f.name === name);
     if (inst) {
       if (ctx.isStatic) throw err(`static メソッドの中では、インスタンスのフィールド ${name} は使えません`, loc, `non-static variable ${name} cannot be referenced from a static context`);
@@ -701,7 +949,8 @@ export function check(ast, classes) {
     }
     const sf = findStaticField(ctx.cls, name);
     if (sf) return sf.field.type;
-    if (classes.has(name) || BUILTIN_CLASSES.has(name)) return `class:${name}`;
+    // Comparator は、implements で使う組み込みのインターフェースだが、Comparator.comparing(…) では static メソッドの持ち主
+    if (classes.has(name) || (BUILTIN_CLASSES.has(name) && !BUILTIN_NAMES.has(name))) return `class:${name}`;
     if (BUILTIN_NAMES.has(name)) { needImport(name, loc); return `builtin:${name}`; }
     throw err(`「${name}」という変数は宣言されていません（つづりと、宣言した場所（{ } の範囲）を確かめてください）`, loc, 'cannot find symbol');
   }
@@ -733,12 +982,146 @@ export function check(ast, classes) {
     return null;
   }
 
+  /** ラムダ式・メソッド参照の本体の型（調べたあと。分からなければ null） */
+  function bodyTypeOf(a) { return a && a.bodyType && a.bodyType !== '<lambda>' ? a.bodyType : null; }
+
+  /**
+   * ストリーム・Optional のメソッドの戻り値の型（ADR-011）。fnTargets にラムダ式の入れる先の型を置く。
+   * map(x -> …) のように、ラムダ式の本体の型で決まるものは、関数（あとで求める）を返す
+   */
+  function streamCallType(n, name, ot, argTypes, fnTargets, loc) {
+    const b = baseType(ot);
+    const notFound = () => err(`${b} に ${name}(…) はありません（まだ対応していないメソッドかもしれません）`, loc, 'cannot find symbol');
+    if (b.startsWith('Optional')) {
+      const T = b === 'OptionalInt' ? 'int' : b === 'OptionalDouble' ? 'double' : typeArgs(ot)[0] ?? null;
+      const getter = b === 'OptionalInt' ? 'getAsInt' : b === 'OptionalDouble' ? 'getAsDouble' : 'get';
+      switch (name) {
+        case getter: case 'orElseThrow': case 'orElse': return T;
+        case 'orElseGet': fnTargets[0] = T ? `Supplier<${boxType(T)}>` : null; return T;
+        case 'isPresent': case 'isEmpty': case 'equals': return 'boolean';
+        case 'ifPresent': fnTargets[0] = b === 'OptionalInt' ? 'IntConsumer' : b === 'OptionalDouble' ? 'DoubleConsumer' : `Consumer<${T ?? '_'}>`; return 'void';
+        case 'toString': return 'String';
+        case 'hashCode': return 'int';
+      }
+      throw notFound();
+    }
+    const prim = b !== 'Stream';
+    const T = b === 'IntStream' ? 'int' : b === 'DoubleStream' ? 'double' : typeArgs(ot)[0] ?? null;
+    const TB = T ? boxType(T) : '_';
+    const P = b === 'IntStream' ? 'Int' : 'Double';
+    const opt = b === 'Stream' ? (T ? `Optional<${T}>` : 'Optional') : `Optional${P}`;
+    const pred = prim ? `${P}Predicate` : `Predicate<${TB}>`;
+    const fromBody = (wrap) => () => { const r = bodyTypeOf(n.arguments[0]); return r && r !== 'void' ? wrap(boxType(r)) : baseType(wrap('X')); };
+    switch (name) {
+      case 'filter': fnTargets[0] = pred; return ot;
+      case 'map':
+        if (prim) { fnTargets[0] = `${P}UnaryOperator`; return ot; }
+        fnTargets[0] = `Function<${TB},_>`;
+        return fromBody(r => `Stream<${r}>`);
+      case 'mapToInt': if (prim) break; fnTargets[0] = `ToIntFunction<${TB}>`; return 'IntStream';
+      case 'mapToDouble': if (prim) break; fnTargets[0] = `ToDoubleFunction<${TB}>`; return 'DoubleStream';
+      case 'mapToObj': if (b !== 'IntStream') break; fnTargets[0] = 'IntFunction<_>'; return fromBody(r => `Stream<${r}>`);
+      case 'boxed': if (!prim) break; return `Stream<${TB}>`;
+      case 'asDoubleStream': if (b !== 'IntStream') break; return 'DoubleStream';
+      case 'peek': case 'forEach': case 'forEachOrdered':
+        fnTargets[0] = prim ? `${P}Consumer` : `Consumer<${TB}>`;
+        return name === 'peek' ? ot : 'void';
+      case 'distinct': case 'limit': case 'skip': return ot;
+      case 'sorted': if (argTypes.length) { if (prim) break; fnTargets[0] = `Comparator<${TB}>`; } return ot;
+      case 'count': return 'long';
+      case 'sum': if (!prim) break; return T;
+      case 'average': if (!prim) break; return 'OptionalDouble';
+      case 'max': case 'min': if (!prim) fnTargets[0] = `Comparator<${TB}>`; return opt;
+      case 'reduce':
+        if (argTypes.length === 2) { fnTargets[1] = prim ? `${P}BinaryOperator` : `BinaryOperator<${TB}>`; return prim ? T : (T ?? argTypes[0]); }
+        fnTargets[0] = prim ? `${P}BinaryOperator` : `BinaryOperator<${TB}>`;
+        return opt;
+      case 'anyMatch': case 'allMatch': case 'noneMatch': fnTargets[0] = pred; return 'boolean';
+      case 'findFirst': case 'findAny': return opt;
+      case 'toList': if (prim) break; return T ? `List<${T}>` : 'List';
+      case 'toArray': return prim ? `${T}[]` : 'Object[]';
+      case 'collect': {
+        if (prim) break;
+        const ct = argTypes[0];
+        return ct && ct.startsWith('Collector:') ? ct.slice(10) || null : null;
+      }
+    }
+    throw notFound();
+  }
+
+  /**
+   * Collectors.toList() などの型（'Collector:結果の型'。collect の戻り値になる）。E はストリームの要素の型（collect の引数の中だけ分かる）
+   */
+  function collectorType(n, name, argTypes, fnTargets, E) {
+    const EB = E ? boxType(E) : null;
+    const res = (t) => `Collector:${t}`;
+    const down = (i) => {   // 下流の Collector の結果の型（省略は toList）
+      const d = argTypes[i];
+      return d === undefined ? (EB ? `List<${EB}>` : 'List') : d && d.startsWith('Collector:') ? d.slice(10) : null;
+    };
+    const keyOf = (i) => { const r = bodyTypeOf(n.arguments[i]); return r && r !== 'void' ? boxType(r) : null; };
+    switch (name) {
+      case 'toList': return res(EB ? `List<${EB}>` : 'List');
+      case 'toSet': return res(EB ? `Set<${EB}>` : 'Set');
+      case 'joining': return res('String');
+      case 'counting': return res('Long');
+      case 'summingInt': fnTargets[0] = `ToIntFunction<${EB ?? '_'}>`; return res('Integer');
+      case 'averagingInt': fnTargets[0] = `ToIntFunction<${EB ?? '_'}>`; return res('Double');
+      case 'partitioningBy': {
+        fnTargets[0] = `Predicate<${EB ?? '_'}>`;
+        const v = down(1);
+        return res(v ? `Map<Boolean,${v}>` : 'Map');
+      }
+      case 'groupingBy':
+        fnTargets[0] = `Function<${EB ?? '_'},_>`;
+        return () => { const k = keyOf(0), v = down(1); return res(k && v ? `Map<${k},${v}>` : 'Map'); };
+      case 'toMap':
+        fnTargets[0] = `Function<${EB ?? '_'},_>`;
+        fnTargets[1] = `Function<${EB ?? '_'},_>`;
+        if (argTypes.length > 2) fnTargets[2] = 'BinaryOperator<_>';
+        return () => { const k = keyOf(0), v = keyOf(1); return res(k && v ? `Map<${k},${v}>` : 'Map'); };
+    }
+    throw err(`Collectors に ${name}(…) はありません（まだ対応していないメソッドかもしれません）`, n.callee.loc, 'cannot find symbol');
+  }
+
+  /**
+   * コレクションの、ラムダ式を受け取るメソッドの戻り値の型（ADR-010）。fnTargets に引数の関数型インターフェースの型を置く。
+   * 当てはまらなければ undefined
+   */
+  function lambdaMethodType(n, ot, name, argTypes, fnTargets) {
+    const b = baseType(ot);
+    const [A = null, B = null] = typeArgs(ot);
+    const one = (t) => { fnTargets[argTypes.length - 1] = t; };
+    if (LIST_TYPES.has(b) || SET_TYPES.has(b)) {
+      switch (name) {
+        case 'stream': return A ? `Stream<${A}>` : 'Stream';   // ADR-011
+        case 'forEach': one(A ? `Consumer<${A}>` : 'Consumer'); return 'void';
+        case 'removeIf': one(A ? `Predicate<${A}>` : 'Predicate'); return 'boolean';
+      }
+      if (LIST_TYPES.has(b) && name === 'replaceAll') { one(A ? `UnaryOperator<${A}>` : 'UnaryOperator'); return 'void'; }
+      if (LIST_TYPES.has(b) && name === 'sort' && argTypes[0] === '<lambda>') { one(A ? `Comparator<${A}>` : 'Comparator'); return 'void'; }
+    }
+    if (MAP_TYPES.has(b)) {
+      const K = A ?? 'Object', V = B ?? 'Object';
+      const keyVal = (i, T) => { if (!assignable(argTypes[i], T, classes)) throw err(`マップ ${ot} の${T === K ? 'キー' : '値'}に ${argTypes[i]} の値は使えません`, n.loc, `method ${name} in ${ownerText(b)} cannot be applied to given types;`); };
+      switch (name) {
+        case 'forEach': one(`BiConsumer<${K},${V}>`); return 'void';
+        case 'replaceAll': one(`BiFunction<${K},${V},${V}>`); return 'void';
+        case 'merge': keyVal(0, K); keyVal(1, V); one(`BiFunction<${V},${V},${V}>`); return V;
+        case 'computeIfAbsent': keyVal(0, K); one(`Function<${K},${V}>`); return V;
+        case 'computeIfPresent': case 'compute': keyVal(0, K); one(`BiFunction<${K},${V},${V}>`); return V;
+      }
+    }
+    return undefined;
+  }
+
   /** new HashMap<>(…)・new HashSet<>(…) の引数（なし・容量の int・同じ種類のコレクション。ADR-009） */
   function checkCollectionCtor(n, name, argTypes) {
     if (argTypes.length === 0) return;
     const a = argTypes[0];
     const isMapCls = MAP_TYPES.has(name);
     const ok = argTypes.length === 1 && (a === null
+      || (name.startsWith('Tree') && (a === '<lambda>' || baseType(a) === 'Comparator'))
       || (name !== 'TreeMap' && name !== 'TreeSet' && widens(unboxType(a), 'int'))
       || (isMapCls ? MAP_TYPES.has(baseType(a)) : isIterableType(a)));
     if (!ok) throw err(`${name} を作るときに渡せるのは、${isMapCls ? 'マップ' : 'コレクション'}${name.startsWith('Tree') ? '' : 'か容量（int）'}だけです`, n.loc, `no suitable constructor found for ${name}(${argTypes.join(',')})`);
@@ -832,9 +1215,25 @@ export function check(ast, classes) {
     throw err(`リスト（${baseType(ot)}）に ${name}(…) はありません（まだ対応していないメソッドかもしれません）`, loc, 'cannot find symbol');
   }
 
-  /** メソッドの呼び出しの戻り値の型 */
+  /**
+   * メソッドの呼び出しの戻り値の型。引数のラムダ式・メソッド参照は、呼ぶメソッドが決まってから、その引数の型で調べる
+   * （fnTargets[i] に入れる先の型を置く。分からなければ null で調べる。ADR-010）
+   */
   function callType(n, locals, ctx) {
-    const argTypes = n.arguments.map(a => expr(a, locals, ctx));
+    const c = n.callee;
+    // 受け手の型を引数より先に求める（stream().collect(Collectors.groupingBy(s -> …)) の s の型を、引数の中で使う。ADR-011）
+    const pre = c.type === 'MemberExpression' && c.object.type !== 'Super' && !n.constructorCall ? { ot: expr(c.object, locals, ctx) } : null;
+    let actx = ctx;
+    if (pre?.ot && c.property.name === 'collect' && baseType(pre.ot) === 'Stream') actx = { ...ctx, collectorElem: typeArgs(pre.ot)[0] ?? null };
+    const argTypes = n.arguments.map(a => (isFn(a) ? '<lambda>' : expr(a, locals, actx)));
+    const fnTargets = [];
+    const r = callTypeInner(n, locals, ctx, argTypes, fnTargets, pre);
+    n.arguments.forEach((a, i) => { if (isFn(a)) checkFn(a, fnTargets[i] ?? null, locals, ctx); });
+    // 戻り値の型が、ラムダ式の本体の型で決まるもの（map(x -> …)）は、ラムダ式を調べてから求める
+    return typeof r === 'function' ? r() : r;
+  }
+
+  function callTypeInner(n, locals, ctx, argTypes, fnTargets, pre) {
     const c = n.callee;
     if (n.constructorCall) return 'void';
     const userCall = (cls, name, { staticOnly = false, fromStatic = false } = {}) => {
@@ -856,18 +1255,27 @@ export function check(ast, classes) {
       }
       const m = mostSpecific(ok, argTypes);
       markSignature(n, m);
-      m.paramTypes.forEach((p, i) => markUnbox(n.arguments[i], argTypes[i], p));
+      m.paramTypes.forEach((p, i) => { markUnbox(n.arguments[i], argTypes[i], p); fnTargets[i] = p; });
       for (const t of m.throws ?? []) requireHandled(t, n.loc, ctx);
       return m.returnType;
     };
     if (c.type === 'Identifier') { markType(n, 'recvType', ctx.cls.name); return userCall(ctx.cls, c.name, { fromStatic: ctx.isStatic }); }
     const name = c.property.name;
     if (c.object.type === 'Super') return ctx.cls.superClass?.builtin ? null : userCall(ctx.cls.superClass, name);
-    const ot = expr(c.object, locals, ctx);
+    const ot = pre ? pre.ot : expr(c.object, locals, ctx);
     markType(n, 'recvType', ot?.startsWith('class:') ? ot.slice(6) : ot);
     if (ot === null) return null;
     if (ot.startsWith('builtin:')) {
-      const r = STATIC_RETURNS[ot.slice(8)]?.[name];
+      const b = ot.slice(8);
+      // Collections.sort(list, (a, b) -> …)・Collections.max(list, 比べ方)・Arrays.sort(配列, 比べ方)（ADR-010）
+      if ((b === 'Collections' && /^(sort|max|min)$/.test(name)) || (b === 'Arrays' && name === 'sort')) {
+        const a0 = argTypes[0];
+        const E = !a0 ? null : b === 'Arrays' ? (isArrayType(a0) ? elemTypeOf(a0) : null) : typeArgs(a0)[0] ?? null;
+        if (argTypes.length === 2) fnTargets[1] = E ? `Comparator<${E}>` : 'Comparator';
+      }
+      if (b === 'Comparator') fnTargets.fill(null, 0, argTypes.length);
+      if (b === 'Collectors') return collectorType(n, name, argTypes, fnTargets, ctx.collectorElem ?? null);
+      const r = STATIC_RETURNS[b]?.[name];
       return typeof r === 'function' ? r(argTypes) : r ?? null;
     }
     if (ot.startsWith('class:')) {
@@ -885,9 +1293,31 @@ export function check(ast, classes) {
       return SCANNER_METHODS[name];
     }
     if (ot === 'String') return STRING_METHODS[name] ?? null;
+    if (STREAM_TYPES.has(baseType(ot)) && !classes.has(baseType(ot))) return streamCallType(n, name, ot, argTypes, fnTargets, c.loc);
+    // コレクションの、ラムダ式を受け取るメソッド（ADR-010）
+    const lam = lambdaMethodType(n, ot, name, argTypes, fnTargets);
+    if (lam !== undefined) return lam;
     if (LIST_TYPES.has(baseType(ot))) return listCallType(n, name, ot, argTypes, c.loc);
     if (SET_TYPES.has(baseType(ot))) return setCallType(n, name, ot, argTypes, c.loc);
     if (MAP_TYPES.has(baseType(ot))) return mapCallType(n, name, ot, argTypes, c.loc);
+    // java.util.function のインターフェース・Comparator の値のメソッド（f.apply(3)・cmp.reversed()）
+    const fb = baseType(ot);
+    if (FUNCTIONAL[fb] && !classes.has(fb)) {
+      const fd = fiDescriptor(ot, classes);
+      if (name === fd.name) {
+        if (argTypes.length !== fd.params.length) {
+          throw err(`${fb} の ${name} に渡す引数の数が合いません（${fd.params.length} 個）`, n.loc, `method ${name} in interface ${fb}${typeArgs(ot).length ? `<${typeArgs(ot).map((_, i) => 'TUR'[i]).join(',')}>` : ''} cannot be applied to given types;`);
+        }
+        fd.params.forEach((p, i) => { if (p && !assignable(argTypes[i], p, classes)) throw incompatible(argTypes[i], p, n.arguments[i].loc); markUnbox(n.arguments[i], argTypes[i], p); });
+        return fd.ret;
+      }
+      const dflt = FUNCTIONAL_DEFAULTS[fb];
+      if (dflt && name in dflt) {
+        if (dflt[name] === 'self' && /^(and|or)$/.test(name)) fnTargets[0] = ot;
+        return dflt[name] === 'self' ? ot : null;
+      }
+      throw err(`${fb} に ${name}(…) はありません（${fb} の値で呼べるのは ${fd.name}(…) です）`, c.loc, 'cannot find symbol');
+    }
     if (baseType(ot) === 'Entry') return entryCallType(name, ot, argTypes, c.loc);
     if (ot === 'StringBuilder') {
       if (!(name in SB_METHODS)) throw err(`StringBuilder に ${name}(…) はありません（まだ対応していないメソッドかもしれません）`, c.loc, 'cannot find symbol');
@@ -923,7 +1353,12 @@ export function check(ast, classes) {
         const a = (op === '==' || op === '!=') && both ? a0 : unboxType(a0), b = (op === '==' || op === '!=') && both ? b0 : unboxType(b0);
         if ((op === '==' || op === '!=') && both) markType(n, 'boxedCompare', a0);
         // 片方が文字列の + は toString なので取り出さない。それ以外のラッパー型は取り出して計算する
-        if (!both && !(op === '+' && (a0 === 'String' || b0 === 'String'))) { markUnbox(n.left, a0, a); markUnbox(n.right, b0, b); }
+        // == と != は、もう片方がプリミティブ型のときだけ取り出す（x == null は参照の比較）
+        const eq = op === '==' || op === '!=';
+        if (!both && !(op === '+' && (a0 === 'String' || b0 === 'String'))) {
+          if (!eq || isPrimitiveType(b0)) markUnbox(n.left, a0, a);
+          if (!eq || isPrimitiveType(a0)) markUnbox(n.right, b0, b);
+        }
         if (['==', '!=', '<', '>', '<=', '>='].includes(op)) {
           if (op !== '==' && op !== '!=' && a !== null && b !== null && (!isNumericType(a) || !isNumericType(b))) {
             throw err(`「${op}」で比べられるのは数どうしだけです（${a} と ${b}）`, n.loc, `bad operand types for binary operator '${op}'`);
@@ -948,16 +1383,16 @@ export function check(ast, classes) {
       }
       case 'UpdateExpression': {
         const t = expr(n.argument, locals, ctx);
-        requireAssignable(n.argument, locals, ctx);
+        requireAssignable(n.argument, locals, ctx, true);
         if (t !== null && !isNumericType(unboxType(t))) throw err(`「${n.operator}」は数の変数に使います`, n.loc, `bad operand type ${t} for unary operator '${n.operator}'`);
         return t;
       }
       case 'AssignmentExpression': {
         const lt = expr(n.left, locals, ctx);
-        requireAssignable(n.left, locals, ctx);
+        requireAssignable(n.left, locals, ctx, n.operator !== '=');
         if (n.operator === '=') inferDiamond(n.right, lt);
-        const rt = expr(n.right, locals, ctx);
-        if (n.operator === '=' && !assignable(rt, lt, classes, n.right)) throw incompatible(rt, lt, n.right.loc);
+        const rt = exprT(n.right, lt, locals, ctx);
+        if (n.operator === '=' && !assignable(rt, lt, classes, n.right)) throw incompatibleValue(rt, lt, n.right);
         if (n.operator === '=') markUnbox(n.right, rt, lt);
         else if (lt !== 'String') markUnbox(n.right, rt, 'int');
         return lt;
@@ -1033,7 +1468,8 @@ export function check(ast, classes) {
       case 'NewExpression': {
         const name = n.callee.name;
         knownType(n.genericType ?? name, n.callee.loc);
-        const argTypes = n.arguments.map(a => expr(a, locals, ctx));
+        const argTypes = n.arguments.map(a => (isFn(a) ? '<lambda>' : expr(a, locals, ctx)));
+        const checkFnArgs = (ps = []) => n.arguments.forEach((a, i) => { if (isFn(a)) checkFn(a, ps[i] ?? null, locals, ctx); });
         // ArrayList（型引数つき）・StringBuilder（ADR-007）。要素の型の印は、評価器が表示（ArrayList<Integer>）に使う
         if (name === 'ArrayList' && !classes.has(name)) {
           const e = typeArgs(n.genericType ?? '')[0];
@@ -1049,6 +1485,9 @@ export function check(ast, classes) {
           const ta = typeArgs(n.genericType ?? '');
           if (ta.length) markType(n, 'typeArgs', ta);
           checkCollectionCtor(n, name, argTypes);
+          // new TreeMap<>(比べ方)・new TreeSet<>((a, b) -> b - a)（ADR-010）
+          const K = ta[0] ?? n.typeArgs?.[0] ?? null;
+          checkFnArgs([K ? `Comparator<${K}>` : 'Comparator']);
           return n.genericType ?? name;
         }
         const cls = classes.get(name);
@@ -1068,9 +1507,11 @@ export function check(ast, classes) {
           if (okCtors.length) {
             const c = mostSpecific(okCtors, argTypes);
             markSignature(n, c);
+            checkFnArgs(c.paramTypes);
             for (const t of c.throws ?? []) requireHandled(t, n.loc, ctx);
           }
         }
+        checkFnArgs();
         return name;
       }
       case 'NewArrayExpression':
@@ -1111,6 +1552,7 @@ export function check(ast, classes) {
         }
         return 'boolean';
       case 'SwitchExpression': return switchExprType(n, locals, ctx);
+      case 'LambdaExpression': case 'MethodReference': return checkFn(n, null, locals, ctx);
     }
     return null;
   }

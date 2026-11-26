@@ -82,6 +82,8 @@ export const isSet = (v) => Array.isArray(v) && v.__jset !== undefined;
 export const isMap = (v) => v !== null && typeof v === 'object' && v.__type__ === 'JMap';
 /** Map.Entry（{ __type__: 'JEntry', key, value }。ADR-009） */
 export const isEntry = (v) => v !== null && typeof v === 'object' && v.__type__ === 'JEntry';
+/** ラムダ式・メソッド参照の値（{ __type__: 'JLambda', name }。中身は列挙されない __fn。不変。ADR-010） */
+export const isLambda = (v) => v !== null && typeof v === 'object' && v.__type__ === 'JLambda';
 export const isObject = (v) => v !== null && typeof v === 'object' && v.__type__ === 'JObject';
 /** 数値の型（char を含む。boolean は含まない） */
 export const isNumeric = (v) => isInt(v) || isLong(v) || isDouble(v) || isChar(v);
@@ -127,6 +129,7 @@ export function typeName(v) {
   if (isSet(v)) return v.__jsetElem ? `${v.__jset}<${v.__jsetElem}>` : v.__jset;
   if (isMap(v)) return v.keyType ? `${v.kind}<${v.keyType},${v.valType}>` : v.kind;
   if (isEntry(v)) return 'Entry';
+  if (isLambda(v)) return 'lambda';
   if (isArray(v)) return `${v.__jelem}[]`;
   if (isObject(v)) return v.cls.name;
   return typeof v;
@@ -152,6 +155,8 @@ export function makeList(items, { kind = 'ArrayList', elemType = null } = {}) {
 
 /** スナップショットのクローン（配列の要素の型・リストの印を保つ。共通コアの createCloner に渡す） */
 export function javaCloneHook(v, clone, seen) {
+  // ラムダ式の値は不変なので、複製しない（とらえた変数・スコープを持つ）
+  if (v && v.__type__ === 'JLambda') return v;
   // enum の定数は、名前と序数の印（列挙されない __enum）を保って複製する（ADR-008）
   if (v && v.__type__ === 'JObject' && v.__enum !== undefined) {
     const c = { __type__: 'JObject', cls: v.cls, fields: {} };

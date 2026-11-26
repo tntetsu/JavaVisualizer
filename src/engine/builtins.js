@@ -363,6 +363,8 @@ export function createBuiltins() {
       toHexString: ([v]) => S((v >>> 0).toString(16)),
       compare: ([a, b]) => (a < b ? -1 : a > b ? 1 : 0),
       sum: ([a, b]) => (a + b) | 0,
+      max: ([a, b]) => Math.max(a, b),
+      min: ([a, b]) => Math.min(a, b),
     })],
     ['Long', new JBuiltin('Long', { MAX_VALUE: 9223372036854775807n, MIN_VALUE: -9223372036854775808n })],
     ['Double', new JBuiltin('Double', {
@@ -394,7 +396,13 @@ export function createBuiltins() {
     })],
     ['Arrays', new JBuiltin('Arrays', {
       toString: ([a], ctx) => S(a === null ? 'null' : `[${a.map(x => ctx.str(x)).join(', ')}]`),
-      sort: ([a]) => {
+      sort: ([a, c], ctx) => {
+        if (c !== undefined && c !== null) {
+          // Arrays.sort(配列, 比べ方)：安定なソート（ADR-010）
+          const sorted = a.map((x, i) => [x, i]).sort((p, q) => sign(ctx.call(c, [p[0], q[0]], 'compare')) || p[1] - q[1]);
+          sorted.forEach(([x], i) => { a[i] = x; });
+          return undefined;
+        }
         const cmp = (x, y) => (isString(x) ? (x.s < y.s ? -1 : x.s > y.s ? 1 : 0) : num(x) - num(y));
         const sorted = [...a].sort(cmp);
         sorted.forEach((x, i) => { a[i] = x; });
@@ -405,6 +413,9 @@ export function createBuiltins() {
   ]);
 }
 
+
+/** 比べた結果（int・long）を JS の数に */
+const sign = (r) => (typeof r === 'bigint' ? Number(r) : num(r));
 
 // ── Scanner（入力欄から読む。ADR-005） ─────────────────────────────────────────
 

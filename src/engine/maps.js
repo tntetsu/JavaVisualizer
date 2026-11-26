@@ -18,7 +18,7 @@
  */
 import { JavaError, makeString, isSet, isMap, isEntry, isInt } from './values.js';
 import { JBuiltin } from './builtins.js';
-import { naturalCompare } from './collections.js';
+import { naturalCompare, cmpWith } from './collections.js';
 
 const S = (s) => makeString(s);
 const unsupported = () => new JavaError('UnsupportedOperationException', null);
@@ -47,9 +47,10 @@ const spread = (h) => (h ^ (h >>> 16)) | 0;
  * @param {string} kind 'HashMap'・'LinkedHashMap'・'TreeMap'・'Map'（Map.of。変更できない）
  * @param {{keyType?: string|null, valType?: string|null, cap?: number}} [opts]
  */
-export function newMap(kind, { keyType = null, valType = null, cap = 16 } = {}) {
+export function newMap(kind, { keyType = null, valType = null, cap = 16, cmp = null } = {}) {
   const m = { __type__: 'JMap', kind, keyType, valType, entries: [] };
-  Object.defineProperty(m, '__t', { value: { cap, modCount: 0, seq: 0 }, enumerable: false });
+  // cmp：TreeMap の比べ方（new TreeMap<>(Comparator.reverseOrder())。null なら自然な順序。ADR-010）
+  Object.defineProperty(m, '__t', { value: { cap, modCount: 0, seq: 0, cmp }, enumerable: false });
   return m;
 }
 
@@ -78,8 +79,8 @@ function reorder(m) {
 /** キー k の組（なければ null）。HashMap は同じ位置・同じハッシュの組だけを、本物と同じく key.equals(相手) で比べる */
 function findEntry(m, k, ctx, hash) {
   if (order(m) === 'tree') {
-    if (k === null) throw new JavaError('NullPointerException', null);
-    return m.entries.find(e => naturalCompare(k, e.key, ctx) === 0) ?? null;
+    if (k === null && !m.__t.cmp) throw new JavaError('NullPointerException', null);
+    return m.entries.find(e => cmpWith(m.__t.cmp, k, e.key, ctx) === 0) ?? null;
   }
   if (order(m) === 'hash') {
     const h = hash ?? spread(ctx.hashCode(k));
@@ -111,8 +112,8 @@ export function mapPut(m, k, v, ctx, { ifAbsent = false } = {}) {
   const e = newEntry(k, v, h, t.seq++);
   if (kind === 'tree') {
     // TreeMap：大きい方の最初の位置に入れる（はじめの 1 つも compare(key, key) で型を確かめる）
-    if (m.entries.length === 0) naturalCompare(k, k, ctx);
-    let i = m.entries.findIndex(x => naturalCompare(k, x.key, ctx) < 0);
+    if (m.entries.length === 0) cmpWith(m.__t.cmp, k, k, ctx);
+    let i = m.entries.findIndex(x => cmpWith(m.__t.cmp, k, x.key, ctx) < 0);
     if (i < 0) i = m.entries.length;
     m.entries.splice(i, 0, e);
   } else {
@@ -162,6 +163,7 @@ export function constructMap(kind, args, types, ctx) {
     if (a0 < 0) throw new JavaError('IllegalArgumentException', `Illegal initial capacity: ${a0}`);
     return newMap(kind, { ...types, cap: tableSizeFor(a0) });
   }
+  if (kind === 'TreeMap' && !isMap(a0)) return newMap(kind, { ...types, cmp: a0 });   // 比べ方（null は自然な順序）
   if (a0 === null) throw new JavaError('NullPointerException', null);
   const m = newMap(kind, { ...types, cap: copyCapacity(a0.entries.length) });
   putAll(m, a0, ctx);
@@ -171,11 +173,11 @@ export function constructMap(kind, args, types, ctx) {
 // ── 集合 ────────────────────────────────────────────────────────────────────
 
 /** 集合（配列）を作る。backing は裏のマップ（なければ作る） */
-export function newSet(kind, { elemType = null, cap = 16, view = null } = {}) {
+export function newSet(kind, { elemType = null, cap = 16, view = null, cmp = null } = {}) {
   const a = [];
   Object.defineProperty(a, '__jset', { value: kind, enumerable: false, writable: true });
   Object.defineProperty(a, '__jsetElem', { value: elemType, enumerable: false, writable: true });
-  Object.defineProperty(a, '__jsetMap', { value: view ? null : newMap(SET_BACKING[kind], { cap }), enumerable: false });
+  Object.defineProperty(a, '__jsetMap', { value: view ? null : newMap(SET_BACKING[kind], { cap, cmp }), enumerable: false });
   // keySet()・entrySet()：元のマップ（繰り返しの途中で元が変わったら ConcurrentModificationException。ADR-009）
   if (view) Object.defineProperty(a, '__jview', { value: view, enumerable: false });
   return a;
@@ -188,7 +190,7 @@ function syncSet(s) {
   s.push(...keys);
 }
 
-function setAdd(s, x, ctx) {
+export function setAdd(s, x, ctx) {
   const m = s.__jsetMap;
   if (findEntry(m, x, ctx)) return false;
   mapPut(m, x, true, ctx);
@@ -215,6 +217,7 @@ export function constructSet(kind, args, elemType, ctx) {
     if (a0 < 0) throw new JavaError('IllegalArgumentException', `Illegal initial capacity: ${a0}`);
     return newSet(kind, { elemType, cap: tableSizeFor(a0) });
   }
+  if (kind === 'TreeSet' && !Array.isArray(a0)) return newSet(kind, { elemType, cmp: a0 });   // 比べ方（ADR-010）
   if (a0 === null) throw new JavaError('NullPointerException', null);
   const s = newSet(kind, { elemType, cap: setCopyCapacity(a0.length) });
   for (const x of [...a0]) setAdd(s, x, ctx);
@@ -279,6 +282,7 @@ export const entryEquals = (e, o, ctx) => isEntry(o) && ctx.equals(e.key, o.key)
 // ── メソッド ────────────────────────────────────────────────────────────────
 
 const noSuch = () => new JavaError('NoSuchElementException', null);
+const nn = (f) => { if (f === null || f === undefined) throw new JavaError('NullPointerException', null); };
 
 /**
  * マップのメソッド。見つからなければ undefined を返す（void のメソッドは null ではなく VOID を返す）
@@ -304,6 +308,41 @@ export function callMapMethod(m, name, args, ctx, makeList) {
     case 'keySet': return keySetView(m);
     case 'values': return valuesView(m, makeList);
     case 'entrySet': return entrySetView(m);
+    // ラムダ式を受け取るメソッド（ADR-010）。本物の HashMap と同じ手順で、値が null になったら組を除く
+    case 'forEach': nn(a0); for (const e of [...m.entries]) ctx.call(a0, [e.key, e.value], 'accept'); return VOID;
+    case 'replaceAll': need(); nn(a0); for (const e of m.entries) e.value = ctx.call(a0, [e.key, e.value], 'apply'); return VOID;
+    case 'merge': {
+      need(); nn(args[2]);
+      if (a1 === null) throw new JavaError('NullPointerException', null);
+      const e = findEntry(m, a0, ctx);
+      const v = e && e.value !== null ? ctx.call(args[2], [e.value, a1], 'apply') : a1;
+      if (v === null) mapRemove(m, a0, ctx); else if (e) e.value = v; else mapPut(m, a0, v, ctx);
+      return v;
+    }
+    case 'computeIfAbsent': {
+      need(); nn(a1);
+      const e = findEntry(m, a0, ctx);
+      if (e && e.value !== null) return e.value;
+      const v = ctx.call(a1, [a0], 'apply');
+      if (v !== null) { if (e) e.value = v; else mapPut(m, a0, v, ctx); }
+      return v;
+    }
+    case 'computeIfPresent': {
+      need(); nn(a1);
+      const e = findEntry(m, a0, ctx);
+      if (!e || e.value === null) return null;
+      const v = ctx.call(a1, [a0, e.value], 'apply');
+      if (v === null) mapRemove(m, a0, ctx); else e.value = v;
+      return v;
+    }
+    case 'compute': {
+      need(); nn(a1);
+      const e = findEntry(m, a0, ctx);
+      const v = ctx.call(a1, [a0, e ? e.value : null], 'apply');
+      if (v === null) { if (e) mapRemove(m, a0, ctx); return null; }
+      if (e) e.value = v; else mapPut(m, a0, v, ctx);
+      return v;
+    }
     case 'firstKey': if (!m.entries.length) throw noSuch(); return m.entries[0].key;
     case 'lastKey': if (!m.entries.length) throw noSuch(); return m.entries[m.entries.length - 1].key;
     case 'toString': return S(mapString(m, ctx));
@@ -343,6 +382,13 @@ export function callSetMethod(s, name, args, ctx) {
       return ch;
     }
     case 'clear': need(); mapClear(own); s.length = 0; return VOID;
+    case 'forEach': nn(a0); for (const x of [...s]) ctx.call(a0, [x], 'accept'); return VOID;
+    case 'removeIf': {
+      need(); nn(a0);
+      let ch = false;
+      for (const x of [...s]) if (ctx.call(a0, [x], 'test')) ch = setRemove(s, x, ctx) || ch;
+      return ch;
+    }
     case 'first': if (!s.length) throw noSuch(); return s[0];
     case 'last': if (!s.length) throw noSuch(); return s[s.length - 1];
     case 'toString': return S(setString(s, ctx));
@@ -366,7 +412,7 @@ export function callEntryMethod(e, name, args, ctx) {
 }
 
 /** void のメソッドの戻り値の印（undefined は「メソッドが見つからない」に使うため） */
-export const VOID = Symbol('void');
+export const VOID = Symbol.for('java.void');
 
 // ── Map.of・Set.of・Map.entry ────────────────────────────────────────────────
 

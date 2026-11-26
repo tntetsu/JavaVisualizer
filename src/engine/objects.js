@@ -136,6 +136,14 @@ const Comparable = new JClass('Comparable', null, { builtin: true, pkg: 'java.la
 Comparable.kind = 'interface';
 Comparable.abstract = true;
 
+/** 組み込みのインターフェース Comparator・Runnable（自作のクラスが implements Comparator<T> で使う。ADR-010） */
+const Comparator = new JClass('Comparator', null, { builtin: true, pkg: 'java.util' });
+Comparator.kind = 'interface';
+Comparator.abstract = true;
+const Runnable = new JClass('Runnable', null, { builtin: true, pkg: 'java.lang' });
+Runnable.kind = 'interface';
+Runnable.abstract = true;
+
 /** 組み込みのクラス（例外など）。名前 → JClass */
 export const BUILTIN_CLASSES = new Map([
   ObjectClass, Throwable, Exception, ErrorCls, RuntimeException, IllegalArgumentException, IndexOutOfBoundsException,
@@ -151,6 +159,8 @@ export const BUILTIN_CLASSES = new Map([
   lang('StackOverflowError', ErrorCls),
   NoSuchElementException,
   Comparable,
+  Comparator,
+  Runnable,
   new JClass('InputMismatchException', NoSuchElementException, { builtin: true, pkg: 'java.util' }),
   new JClass('ConcurrentModificationException', RuntimeException, { builtin: true, pkg: 'java.util' }),
 ].map(c => [c.name, c]));

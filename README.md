@@ -42,9 +42,9 @@ Java のプログラムは、JavaVisualizer に組み込んだ Java のインタ
 
 ## 使える Java の範囲
 
-`int`・`long`・`double`・`char`・`boolean`・`String`・配列（1 次元・2 次元）、`if`・`while`・`do`／`while`・`for`・拡張 `for`・`switch`（`switch` 式も）、メソッド（`static`・インスタンス・再帰・オーバーロード）、クラス（フィールド・コンストラクタ・継承・`super`・抽象クラス・インターフェース・`enum`）、例外（`try`／`catch`／`finally`・`throw`・自作の例外）、`System.out.println`・`printf`・`String` の主なメソッド・`Math`・`Integer.parseInt`・`Arrays`・`Scanner`、`ArrayList`・`HashMap`・`HashSet`（`TreeMap`・`LinkedHashMap` などを含む。`HashMap` の順序も本物と同じ）・`StringBuilder`・ラッパー型とジェネリクスの型。
+`int`・`long`・`double`・`char`・`boolean`・`String`・配列（1 次元・2 次元）、`if`・`while`・`do`／`while`・`for`・拡張 `for`・`switch`（`switch` 式も）、メソッド（`static`・インスタンス・再帰・オーバーロード）、クラス（フィールド・コンストラクタ・継承・`super`・抽象クラス・インターフェース・`enum`）、例外（`try`／`catch`／`finally`・`throw`・自作の例外）、`System.out.println`・`printf`・`String` の主なメソッド・`Math`・`Integer.parseInt`・`Arrays`・`Scanner`、`ArrayList`・`HashMap`・`HashSet`（`TreeMap`・`LinkedHashMap` などを含む。`HashMap` の順序も本物と同じ）・`StringBuilder`・ラッパー型とジェネリクスの型、ラムダ式・メソッド参照（`forEach`・`sort`・`merge`・`Comparator`・`java.util.function`）、ストリーム（`filter`・`map`・`collect`・`Collectors`・`IntStream`。本物と同じく要素ごとに進む）と `Optional`。
 
-まだ使えないもの：`float`、`record`、ラムダ式・ストリーム、ジェネリクスのクラスを自分で作ること、`static` でない内部クラス、ファイルの読み書き。
+まだ使えないもの：`float`、`record`、ストリームの一部（`flatMap`・`parallelStream`）、ジェネリクスのクラスを自分で作ること、`static` でない内部クラス、ファイルの読み書き。
 
 ## 動かし方
 

@@ -23,7 +23,7 @@ import { registerEnglish } from './messages-en.js';
 export const JAVA_NODE_CATEGORIES = Object.freeze({
   stopOnExit: ['VariableDeclaration', 'AssignmentExpression', 'UpdateExpression', 'ReturnStatement', 'ThrowStatement',
     'LoopBinding', 'CatchBinding', 'CaseMatch', 'FieldDeclaration'],
-  call:       ['CallExpression', 'NewExpression'],
+  call:       ['CallExpression', 'NewExpression', 'LambdaCall'],   // LambdaCall：forEach などがラムダ式を呼ぶ 1 回（ADR-010）
   block:      ['BlockStatement'],
   branch:     ['IfStatement', 'ConditionalExpression'],
   condLoop:   ['WhileStatement', 'DoWhileStatement'],

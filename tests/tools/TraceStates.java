@@ -120,10 +120,15 @@ public class TraceStates {
     static void record(ThreadReference t, List<String> changes, Map<Integer, Map<String, String>> prev) {
         try {
             StackFrame f = t.frame(0);
+            // JDK のクラスと、ラムダ式の裏で作られるクラス（Main$$Lambda）のフレームは記録しない（後者から JDK の中に止まることがある）
+            String owner = f.location().declaringType().name();
+            if (owner.matches("^(java|javax|jdk|sun|com\\.sun)\\..*") || owner.contains("$$Lambda")) return;
             String method = f.location().method().name();
             // 入れ子のクラスのコンストラクタは Main$Planet → Planet（JavaVisualizer のフレームの名前に合わせる）
             if (method.equals("<init>")) method = f.location().declaringType().name().replaceFirst("^.*[.$]", "");
             if (method.equals("<clinit>")) return;
+            // ラムダ式の本体（lambda$main$0）は比べない。JDK の中から呼ばれるときに、同じ状態が 2 回記録されるなどのぶれがある（ADR-010）
+            if (method.startsWith("lambda$")) return;
             // enum の values()・valueOf() はコンパイラが作るメソッドなので比べない
             if (isEnum(f.location().declaringType()) && (method.equals("values") || method.equals("valueOf"))) return;
             Map<String, String> cur = new LinkedHashMap<>();
@@ -160,6 +165,8 @@ public class TraceStates {
             // enum の定数は Color.GREEN（型の名前は入れ子の外側を除く）
             if (isEnum(t)) return t.name().replaceFirst("^.*[.$]", "") + "." + ((StringReference) o.getValue(((ClassType) t).superclass().fieldByName("name"))).value();
             // ラッパー型（Integer など）は中の値、リスト（ArrayList・List.of）は [要素, …]、StringBuilder は StringBuilder("…")
+            if (t.name().contains("$$Lambda")) return "<lambda>";   // ラムダ式・メソッド参照の値（ADR-010）
+            if (t.name().startsWith("java.util.stream.")) return "<stream>";   // ストリーム（ADR-011）
             String jdk = jdkRepr(o, t, depth);
             if (jdk != null) return jdk;
             // そのほかの JDK のクラスのオブジェクト（Scanner など）は、内部の状態を書かずに型名だけにする
@@ -233,6 +240,16 @@ public class TraceStates {
             case "java.util.HashMap$Node", "java.util.HashMap$TreeNode", "java.util.LinkedHashMap$Entry", "java.util.TreeMap$Entry", "java.util.KeyValueHolder" -> {
                 if (depth >= 3) return "…=…";
                 return repr(o.getValue(fieldOf(t, "key")), depth + 1) + "=" + repr(o.getValue(fieldOf(t, "value")), depth + 1);
+            }
+            // Optional[3]・Optional.empty・OptionalInt[3]（ADR-011）
+            case "java.util.Optional" -> {
+                Value v = o.getValue(t.fieldByName("value"));
+                return v == null ? "Optional.empty" : "Optional[" + repr(v, depth + 1) + "]";
+            }
+            case "java.util.OptionalInt", "java.util.OptionalDouble" -> {
+                String k = t.name().replaceFirst("^.*\\.", "");
+                boolean present = ((BooleanValue) o.getValue(t.fieldByName("isPresent"))).value();
+                return present ? k + "[" + repr(o.getValue(t.fieldByName("value")), depth + 1) + "]" : k + ".empty";
             }
             case "java.lang.StringBuilder" -> {
                 ClassType sup = ((ClassType) t).superclass();

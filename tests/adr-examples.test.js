@@ -242,3 +242,77 @@ test('ADR-009 例：HashMap の順序と表示・null を int に取り出す・
   const e = compileError('import java.util.*;\n' + main('        Map<String, Integer> m = new HashMap<>();\n        for (String k : m) System.out.println(k);'));
   assert.equal(e.javac, 'for-each not applicable to expression type');
 });
+
+test('ADR-010 例：ラムダ式の呼び出しと「人」のステップ・外側の変数の入れ直し・var', () => {
+  const src = [
+    'import java.util.*;',
+    'import java.util.function.*;',
+    '',
+    'public class Main {',
+    '    public static void main(String[] args) {',
+    '        List<Integer> xs = new ArrayList<>(List.of(3, 1, 2));',
+    '        xs.sort((a, b) -> a - b);',
+    '        xs.forEach(x -> System.out.println(x * 10));',
+    '        Function<Integer, Integer> square = x -> x * x;',
+    '        int s = square.apply(5);',
+    '        System.out.println(xs + " " + s);',
+    '    }',
+    '}',
+    '',
+  ].join('\n');
+  const dbg = new JavaDebugger(src);
+  assert.deepEqual(joinConsoleLines(dbg.consoleLogs).map(l => l.text), ['10', '20', '30', '[1, 2, 3] 25']);
+  // 「人」のステップ：forEach の各回で、ラムダ式の呼び出し（8 行目）→ 本体（lambda のフレーム）→ 戻り、に止まる
+  const stops = [];
+  while (!dbg.humanStep().done) {
+    const e = dbg.getCurrentEvent();
+    stops.push(`${e.loc.line}:${e.callStack.at(-1).name}`);
+  }
+  const forEachStops = stops.filter(x => x.startsWith('8:'));
+  assert.deepEqual(forEachStops, Array(3).fill(['8:main', '8:lambda', '8:main']).flat());
+  // コールスタックのビューで、ラムダ式の値は ƒ x -> x * x と見せる
+  const sq = dbg.trace.filter(e => e.phase === 'exit' && e.nodeType === 'VariableDeclaration' && e.loc.line === 9).at(-1).frameEnvs.at(-1).square;
+  assert.equal(javaValueModel.kind(sq), 'function');
+  assert.equal(sq.name, 'x -> x * x');
+
+  // 外側の変数をラムダ式の中で入れ直す・入れ直した変数を使うのはコンパイルエラー
+  const e1 = compileError('import java.util.*;\n' + main('        int sum = 0;\n        List<Integer> xs = List.of(1, 2);\n        xs.forEach(x -> sum += x);'));
+  assert.equal(e1.javac, 'local variables referenced from a lambda expression must be final or effectively final');
+  const e2 = compileError('import java.util.function.*;\n' + main('        var f = (Integer x) -> x;'));
+  assert.equal(e2.javac, 'cannot infer type for local variable f');
+});
+
+test('ADR-011 例：ストリームは要素ごとに filter → map → forEach と進む・Optional の表示・count は long', () => {
+  const src = [
+    'import java.util.*;',
+    'import java.util.stream.*;',
+    '',
+    'public class Main {',
+    '    public static void main(String[] args) {',
+    '        List<String> words = List.of("banana", "kiwi", "fig");',
+    '        words.stream()',
+    '            .filter(w -> w.length() > 3)',
+    '            .map(w -> w.toUpperCase())',
+    '            .forEach(w -> System.out.println(w));',
+    '        Optional<String> first = words.stream().filter(w -> w.startsWith("k")).findFirst();',
+    '        System.out.println(first + " " + words.stream().count());',
+    '    }',
+    '}',
+    '',
+  ].join('\n');
+  const dbg = new JavaDebugger(src);
+  assert.deepEqual(joinConsoleLines(dbg.consoleLogs).map(l => l.text), ['BANANA', 'KIWI', 'Optional[kiwi] 3']);
+  // 「人」のステップでラムダ式に入る行の順：banana は 8→9→10、kiwi も 8→9→10、fig は 8 だけ（filter で落ちる）
+  const lines = [];
+  while (!dbg.humanStep().done) {
+    const e = dbg.getCurrentEvent();
+    if (e.callStack.at(-1).name === 'lambda' && e.loc.line <= 10) lines.push(e.loc.line);
+  }
+  assert.deepEqual(lines, [8, 9, 10, 8, 9, 10, 8]);
+  // Optional は Optional[kiwi] の形で見せる
+  const first = dbg.trace.filter(e => e.phase === 'exit' && e.nodeType === 'VariableDeclaration' && e.loc.line === 11).at(-1).frameEnvs.at(-1).first;
+  assert.deepEqual(javaValueModel.brackets(first), ['Optional[', ']']);
+  // count() は long なので、int に入れるとコンパイルエラー
+  const e = compileError('import java.util.*;\n' + main('        List<Integer> xs = List.of(1, 2);\n        int c = xs.stream().count();'));
+  assert.equal(e.javac, 'incompatible types: possible lossy conversion from long to int');
+});

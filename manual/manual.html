@@ -176,7 +176,7 @@
       <p>開いた直後は、サンプルのコード（フィボナッチ数列）が入っています。</p>
 
       <h3>サンプルから選ぶ</h3>
-      <p>編集モードのとき、画面上部の<strong>サンプル選択</strong>（プルダウン）から、28種類のサンプルコードを選べます。</p>
+      <p>編集モードのとき、画面上部の<strong>サンプル選択</strong>（プルダウン）から、30種類のサンプルコードを選べます。</p>
       <figure>
         <img src="manual/ja/screen-edit.png" alt="編集モードの画面。上部に編集・実行ボタンとサンプル選択、左にバブルソートのコード" width="1280" height="800" loading="lazy" />
         <figcaption>編集モード（サンプル「Bubble Sort」を選んだところ）</figcaption>
@@ -191,7 +191,7 @@
           <tr><td>数学・アルゴリズム</td><td>ユークリッドの互除法（ループ／再帰）、階乗、フィボナッチ数列（再帰／動的計画法）</td></tr>
           <tr><td>データ構造</td><td>二分木、連結リスト</td></tr>
           <tr><td>クラス</td><td><code>static</code> とインスタンスのフィールド、クラスと継承、インターフェースとポリモーフィズム</td></tr>
-          <tr><td>Java</td><td>型と参照（整数の割り算・<code>int</code> のあふれ・キャスト・<code>==</code> と <code>equals</code>）、例外（<code>try</code>／<code>catch</code>）、入力（<code>Scanner</code>）、<code>enum</code> と <code>switch</code> 式、<code>ArrayList</code> と <code>StringBuilder</code>、<code>HashMap</code> と <code>HashSet</code></td></tr>
+          <tr><td>Java</td><td>型と参照（整数の割り算・<code>int</code> のあふれ・キャスト・<code>==</code> と <code>equals</code>）、例外（<code>try</code>／<code>catch</code>）、入力（<code>Scanner</code>）、<code>enum</code> と <code>switch</code> 式、<code>ArrayList</code> と <code>StringBuilder</code>、<code>HashMap</code> と <code>HashSet</code>、ラムダ式、ストリーム</td></tr>
           <tr><td>Study Tasks</td><td>練習用の課題（バグ探し・呼び出し回数・途中状態のトレースなど）</td></tr>
         </tbody>
       </table>
@@ -210,10 +210,10 @@
           <tr><td>型</td><td><code>int</code>・<code>long</code>・<code>short</code>・<code>byte</code>・<code>double</code>・<code>char</code>・<code>boolean</code>・<code>String</code>、配列（1 次元・2 次元）、自分で作ったクラス・インターフェース・<code>enum</code>、<code>var</code>、ラッパー型（<code>Integer</code> など）、ジェネリクスの型（<code>ArrayList&lt;Integer&gt;</code>・<code>Map&lt;String, Integer&gt;</code>）</td></tr>
           <tr><td>文</td><td>変数の宣言と代入（<code>+=</code>・<code>++</code> などを含む）、<code>if</code>／<code>else</code>、<code>while</code>、<code>do</code>／<code>while</code>、<code>for</code>、拡張 <code>for</code>（<code>for (int x : a)</code>）、<code>switch</code>（<code>case 1:</code> の形と <code>case 1 -&gt;</code> の形。<code>switch</code> 式と <code>yield</code> も）、<code>break</code>／<code>continue</code>、<code>return</code>、<code>try</code>／<code>catch</code>／<code>finally</code>、<code>throw</code></td></tr>
           <tr><td>式</td><td>算術（整数の割り算・あふれも本物の Java と同じ）、比較、<code>&amp;&amp;</code>／<code>||</code>／<code>!</code>、ビット演算・シフト、条件演算子 <code>? :</code>、キャスト、<code>instanceof</code>（<code>o instanceof String s</code> の形も）、文字列の連結</td></tr>
-          <tr><td>メソッド</td><td><code>static</code> メソッド、インスタンスのメソッド、再帰、オーバーロード</td></tr>
+          <tr><td>メソッド</td><td><code>static</code> メソッド、インスタンスのメソッド、再帰、オーバーロード、ラムダ式（<code>x -&gt; x * 2</code>・<code>(a, b) -&gt; { … }</code>）とメソッド参照（<code>Integer::sum</code>・<code>String::length</code>・<code>System.out::println</code>）</td></tr>
           <tr><td>クラス</td><td>フィールド・コンストラクタ・<code>this</code>・<code>static</code> フィールド・定数（<code>static final</code>）、継承と <code>super</code>・オーバーライド、抽象クラス・インターフェース（<code>default</code> メソッド）・<code>Comparable</code>、<code>enum</code>、クラスの中の <code>static</code> なクラス、自分で作った例外（<code>extends Exception</code> など）</td></tr>
-          <tr><td>標準ライブラリ</td><td><code>System.out.println</code>・<code>print</code>・<code>printf</code>、<code>String.format</code>、<code>String</code> の主なメソッド（<code>length</code>・<code>charAt</code>・<code>substring</code>・<code>indexOf</code>・<code>equals</code>・<code>compareTo</code>・<code>split</code> など）、<code>Math</code>、<code>Integer.parseInt</code>・<code>Integer.MAX_VALUE</code>、<code>Double.parseDouble</code>、<code>Character</code> の主なメソッド、<code>Arrays.toString</code>・<code>Arrays.sort</code>、<code>Scanner</code>、<code>ArrayList</code>・<code>List.of</code>・<code>Collections</code>、<code>HashMap</code>・<code>TreeMap</code>・<code>LinkedHashMap</code>・<code>Map.of</code>、<code>HashSet</code>・<code>TreeSet</code>・<code>LinkedHashSet</code>・<code>Set.of</code>、<code>StringBuilder</code></td></tr>
-          <tr><td>まだ使えないもの</td><td><code>float</code>、<code>record</code>、ラムダ式・ストリーム（<code>forEach</code>・<code>merge</code>・<code>Comparator</code> など）、ジェネリクスのクラス・メソッドを自分で作ること、<code>static</code> でない内部クラス、<code>Iterator</code>、ファイルの読み書き。使うと「〜はまだ対応していません」というエラーになります</td></tr>
+          <tr><td>標準ライブラリ</td><td><code>System.out.println</code>・<code>print</code>・<code>printf</code>、<code>String.format</code>、<code>String</code> の主なメソッド（<code>length</code>・<code>charAt</code>・<code>substring</code>・<code>indexOf</code>・<code>equals</code>・<code>compareTo</code>・<code>split</code> など）、<code>Math</code>、<code>Integer.parseInt</code>・<code>Integer.MAX_VALUE</code>、<code>Double.parseDouble</code>、<code>Character</code> の主なメソッド、<code>Arrays.toString</code>・<code>Arrays.sort</code>、<code>Scanner</code>、<code>ArrayList</code>・<code>List.of</code>・<code>Collections</code>、<code>HashMap</code>・<code>TreeMap</code>・<code>LinkedHashMap</code>・<code>Map.of</code>、<code>HashSet</code>・<code>TreeSet</code>・<code>LinkedHashSet</code>・<code>Set.of</code>、<code>StringBuilder</code>、<code>forEach</code>・<code>removeIf</code>・<code>sort</code>・<code>merge</code>・<code>computeIfAbsent</code> などラムダ式を受け取るメソッド、<code>Comparator</code>、<code>java.util.function</code> の <code>Function</code>・<code>Predicate</code>・<code>Consumer</code>・<code>Supplier</code> など、ストリーム（<code>stream()</code>・<code>filter</code>・<code>map</code>・<code>sorted</code>・<code>collect</code>・<code>Collectors</code>・<code>IntStream.range</code> など）と <code>Optional</code></td></tr>
+          <tr><td>まだ使えないもの</td><td><code>float</code>、<code>record</code>、ストリームの一部（<code>flatMap</code>・<code>parallelStream</code> など）、ジェネリクスのクラス・メソッドを自分で作ること、<code>static</code> でない内部クラス、<code>Iterator</code>、ファイルの読み書き。使うと「〜はまだ対応していません」というエラーになります</td></tr>
         </tbody>
       </table>
       <p>本物の Java と表示が違うところがあります。</p>
@@ -223,6 +223,8 @@
         <li>オブジェクトを <code>println</code> したときの <code>Point@1b6d3586</code> の数字（ハッシュ値）は、本物の Java とは違います</li>
         <li><code>Math.random()</code> は、実行するたびに同じ順の乱数になります（本物の Java とは違う値です）</li>
         <li><code>HashMap</code>・<code>HashSet</code> を <code>println</code> したり拡張 <code>for</code> で回したりしたときの順序は、本物の Java と同じです（入れた順ではありません）。ただし、<code>Map.of</code>・<code>Set.of</code> の順序（本物では実行のたびに変わります）と、<code>hashCode</code> を書いていない自分のクラスをキーにしたときの順序は、本物と違います</li>
+        <li>ラムダ式の本体は、<code>lambda</code> という名前のメソッドの呼び出しとして表示します（本物の Java では <code>lambda$main$0</code> のような名前のメソッドです）。<code>sort</code> の中でラムダ式（比べ方）が呼ばれる回数と順は、本物の Java とは違います（並べ替えた結果は同じです）</li>
+        <li>ストリームは、本物の Java と同じく、要素ごとに <code>filter</code> → <code>map</code> → <code>forEach</code> と進みます（ステップ実行で、その順にラムダ式に止まります）</li>
         <li>画面のビューでは、<code>HashMap</code> の中身を <code>"the": 2</code> の形で表示します（<code>println</code> の <code>the=2</code> とは書き方が違います）</li>
       </ul>
       <p>メソッドの呼び出しは、深さがおよそ 200 段を超えると <code>StackOverflowError</code> になります（本物の Java では数千段以上）。</p>
@@ -456,7 +458,7 @@
           <tr><td>キーボードでステップ実行できない</td><td>コードの編集欄などの入力欄にカーソルがあると、キー入力はそちらに入ります。実行モードで画面のほかの場所を一度クリックしてから操作してください</td></tr>
           <tr><td><code>NoSuchElementException</code>「入力欄に、読む値（行）がもうありません」と表示される</td><td><code>Scanner</code> で読む値が足りません。ソースの下の「入力」の欄に、読む値を書いてください（<a href="#input">Scanner を使うとき</a>）</td></tr>
           <tr><td>「最初のクラスに public static void main(String[] args) がありません」と表示される</td><td>最初に書いたクラスから実行します。<code>main</code> メソッドを持つクラスを、ファイルのいちばん上（<code>import</code> の次）に書いてください</td></tr>
-          <tr><td>「〜はまだ対応していません」と表示される</td><td>JavaVisualizer がまだ対応していない Java の書き方です（<a href="#code">2. コードを用意する</a>の表）。対応している書き方に書き換えてください（例：ラムダ式の代わりに <code>for</code> 文を使う）</td></tr>
+          <tr><td>「〜はまだ対応していません」と表示される</td><td>JavaVisualizer がまだ対応していない Java の書き方です（<a href="#code">2. コードを用意する</a>の表）。対応している書き方に書き換えてください（例：<code>flatMap</code> の代わりに <code>for</code> 文を使う）</td></tr>
           <tr><td>実行していない場所でエラーになる</td><td>コンパイルエラーは、本物の Java と同じく、実行する前にプログラム全体を調べて見つけます。エラーの行を直してください</td></tr>
           <tr><td>タブがグレーで選べない</td><td>そのコードでは使えないビューです（main のほかにメソッドを呼んでいないコードの「置換」など）</td></tr>
           <tr><td>画面が正しく表示されない</td><td>パソコンの最新のブラウザを使ってください。ページを再読み込みすると直ることがあります（スマートフォンでの利用は想定していません）</td></tr>

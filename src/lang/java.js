@@ -113,10 +113,13 @@ export const createJavaProfile = (samples, { groups, defaultSample } = {}) => ({
   // 制御フローのビュー：クラスの中のメソッドを描き、switch を case ごとの分岐として描く（JSVisualizer の ADR-055 追記）
   controlFlow: { classMethods: true, switchCases: true },
   valueModel: javaValueModel,
+  // コード表示の色分け。先頭の 2 つは HTML エスケープの前に順に当てる。文字列を先にして、文字列の中の // をコメントにしない
+  // （コメントの中の "…" は文字列の色になる。ADR-006）
   syntaxTokens: [
-    { cls: 'tok-comment', re: /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g },
     { cls: 'tok-string',  re: /("""[\s\S]*?"""|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')/g },
-    { cls: 'tok-number',  re: /\b(\d+(?:\.\d+)?[lLfFdD]?)\b/g },
-    { cls: 'tok-keyword', re: /\b(public|private|protected|static|final|class|extends|implements|interface|new|return|if|else|while|do|for|switch|case|default|break|continue|try|catch|finally|throw|throws|this|super|null|true|false|void|int|long|short|byte|double|float|char|boolean|var|import|package|instanceof)\b/g },
+    { cls: 'tok-comment', re: /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g },
+    { cls: 'tok-number',  re: /\b(0[xX][0-9a-fA-F_]+[lL]?|0[bB][01_]+[lL]?|\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?[lLfFdD]?)\b/g },
+    { cls: 'tok-keyword', re: /\b(public|private|protected|static|final|abstract|class|extends|implements|interface|enum|record|new|return|if|else|while|do|for|switch|case|default|break|continue|try|catch|finally|throw|throws|this|super|null|true|false|void|int|long|short|byte|double|float|char|boolean|var|import|package|instanceof|yield)\b/g },
+    { cls: 'tok-keyword', re: /(@[A-Za-z]\w*)/g },
   ],
 });

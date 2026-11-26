@@ -1,4 +1,4 @@
-# JavaVisualizer 開発計画（初版 2026-11-25、Phase 0 の結果を反映 2026-11-25）
+# JavaVisualizer 開発計画（初版 2026-11-25、Phase 0・1 の結果を反映 2026-11-26）
 
 出発点は [PyVisualizer の docs/multilang-plan.md](../../PyVisualizer/docs/multilang-plan.md)（4.2 節）。PyVisualizer の [開発計画書](../../PyVisualizer/docs/development-plan.md) と同じ構成・同じ進め方にする。
 
@@ -58,7 +58,7 @@ Java は実行の前にコンパイルし、型の誤りなどを見つける。
 | Phase | 内容 | 完了条件 | 状況 |
 |---|---|---|---|
 | **0. スパイク** | `@lezer/java` の評価（入門の構文が読めるか、`record`・`switch` 式・`var`・テキストブロックなど）、AST の変換と小さな評価器、共通コア・画面に載せて全ビューを確認。値の表現と静的な検査の範囲を決める。本物の Java から変数の状態を取り出す方法（JDI）を試す | 報告書 `docs/phase0-report.md`。共通の契約（TraceEvent・ESTree 名の AST・言語プロファイル）で進めてよいかの判断（Go / No-Go）。値の表現の ADR | **済み**（2026-11-25） |
-| **1. 土台の調整** | 画面・共通コアに Java のために要るもの（3.1 節・6 節）を作業ブランチに足す。JS 版・Python 版が変わらないことを確かめ、タグを付ける | JS 版の画面が変更前と一致（`capture-js-dom.mjs`）、PyVisualizer のテストが通る | **実装済み**（2026-11-26）。JS 版の画面の比較とタグ付けが残り |
+| **1. 土台の調整** | 画面・共通コアに Java のために要るもの（3.1 節・6 節）を作業ブランチに足す。JS 版・Python 版が変わらないことを確かめ、タグを付ける | JS 版の画面が変更前と一致（`capture-js-dom.mjs`）、PyVisualizer のテストが通る | **済み**（2026-11-26） |
 | **2. エンジンの MVP** | 5 節の範囲。本物の Java との比較テスト（出力・例外・変数の状態の変化） | 比較テストがすべて通る | **進行中**。スパイクで大半ができ、`Scanner` も済み（ADR-005） |
 | **3. 言語プロファイル** | 値の見せ方（`valueModel`）・色分け・実行トレースの行・エラーメッセージの英語化 | Java の値が Java の書き方で表示される。ADR の例のテスト | 未着手（一部は Phase 0・1 で仮に作った） |
 | **4. アプリ** | サンプル（JS 版の 21 本に対応）、マニュアル（日本語・英語）、デプロイの準備、README | 全サンプル × 全タブでブラウザのエラー 0 件 | 未着手（サンプル 17 本は Phase 0 で作った） |
@@ -68,9 +68,9 @@ Java は実行の前にコンパイルし、型の誤りなどを見つける。
 
 **Phase 0（2026-11-25、[phase0-report.md](phase0-report.md)）**：Go。共通コアと画面を変えずに動き、本物の Java との比較がすべて一致した。値の表現は [ADR-002](adr/ADR-002-java-value-representation.md)、AST とトレースは [ADR-003](adr/ADR-003-ast-and-trace.md)、静的な検査は [ADR-004](adr/ADR-004-static-checks.md)。スパイクで MVP（5 節）の大半（`Scanner` を除く）ができたので、Phase 2 はその残りと比較テストの追加になる。共通コアのイベントの値が複製されない不具合を見つけて直し、JS 版・Python 版の公開版にも反映した（JSInterpreter の ADR-017）。
 
-**Phase 1（2026-11-26、[phase1-report.md](phase1-report.md)）**：制御フロー・置換・式評価のビューが Java で動くようにした。変数の型の表示、`String` をメモリのヒープに置く見せ方、`static` フィールドの見出しを、言語プロファイルの省略できる項目として足した（JSVisualizer の ADR-055 追記、ADR-002・ADR-003 追記）。
+**Phase 1（2026-11-26、[phase1-report.md](phase1-report.md)）**：制御フロー・置換・式評価のビューが Java で動くようにした。変数の型の表示、`String` をメモリのヒープに置く見せ方、`static` フィールドの見出しを、言語プロファイルの省略できる項目として足した（JSVisualizer の ADR-055 追記、ADR-002・ADR-003 追記）。JS 版の画面は 3,050 件すべて変更前と一致し、JSVisualizer の作業ブランチにタグ `multilang-2026.11.26` を付けた。
 
-**Phase 2（進行中）**：`Scanner` で入力欄から読む（[ADR-005](adr/ADR-005-scanner-input.md)）。
+**Phase 2（進行中）**：`Scanner` で入力欄から読む（[ADR-005](adr/ADR-005-scanner-input.md)）。条件演算子の結果の型、完全な名前（`java.util.Arrays`）、`StackOverflowError` の `catch`、`String.formatted`・`Math.floorMod` などを、本物との比較で見つけて直した。
 
 ## 5. MVP の対象範囲（Phase 2）
 

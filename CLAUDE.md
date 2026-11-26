@@ -17,7 +17,7 @@
 - 言語ごとの差（ノードの分類・値の見せ方・エディタ・サンプル・エラーメッセージの英語化）は**言語プロファイル**でフロントエンドに渡す
 - パーサーは `@lezer/java` ＋ 自前の AST 変換（構文エラーの説明は自前）
 
-**現在のステータス**: Phase 0（スパイク）が終わった（2026-11-25、[docs/phase0-report.md](docs/phase0-report.md)）。結論は Go（共通の契約と `@lezer/java` で進める）。共通コアと画面を変えずに Java のエンジンを載せ、本物の Java との比較（出力・例外・コンパイルエラー・JDI による変数の状態・書式）がすべて一致した。値の表現（ADR-002）・AST とトレース（ADR-003）・静的な検査の範囲（ADR-004）を決めた。次は **Phase 1（土台の調整）**：制御フロー・置換・式評価のビューを Java の AST に合わせる、型の表示など（報告書 8 節）。共通コアのイベントの値が複製されない不具合（JS 版にもあった）は直し、JS 版・Python 版の公開版にも反映した（JSInterpreter の ADR-017、2026-11-25）。GitHub のリポジトリは非公開で作った（`tntetsu/JavaVisualizer`。公開は Phase 4 で決める）。公開設定を変えるときは確認を取る。
+**現在のステータス**: Phase 0（スパイク、2026-11-25）と Phase 1（土台の調整、2026-11-26）が終わり、**Phase 2（エンジンの MVP）を進めている**（[docs/development-plan.md](docs/development-plan.md) 4 節の表）。報告書は [docs/phase0-report.md](docs/phase0-report.md)・[docs/phase1-report.md](docs/phase1-report.md)。共通コアと画面は、言語プロファイルの省略できる項目で Java に合わせ、JS 版の画面が変わらないことを確かめた（3,050 件一致）。GitHub のリポジトリは非公開（`tntetsu/JavaVisualizer`。公開は Phase 4 で決める）。公開設定を変えるときは確認を取る。
 
 ## 関連リポジトリ
 
@@ -37,7 +37,7 @@ JSVisualizer と BhvVisualizer は「ソフトウェア基礎論」（2026-09-30
 - JSInterpreter・JSVisualizer・BhvVisualizer の **main には触らない**。マージは学期後（2027 年 2 月以降）で、その前に必ず確認を取る
 - 画面（JSVisualizer）・共通コア（JSInterpreter）に Java のために足すものは、**作業ブランチ**（worktree の `../JSVisualizer-multilang`・`../JSInterpreter-core`）に足す。JS 版の画面が変わらないことを、PyVisualizer の `scripts/capture-js-dom.mjs`（変更前後のビルドの画面の HTML を比べる）で確かめる。Python 版が壊れないことも PyVisualizer のテストで確かめる
 - 作業ブランチに push しても、JSVisualizer のデプロイは動かない（デプロイは main への push だけ）
-- **土台の参照はタグで固定する**（[multilang-plan.md](../PyVisualizer/docs/multilang-plan.md) 3.1 節）。CI は兄弟リポジトリをタグ（いまの最新は JSInterpreter の `multilang-core-2026.11.25.2`・`multilang-master-2026.11.25.2`（ADR-017 を含む）、JSVisualizer の `multilang-2026.11.25`。同じ日に 2 つ目を付けるときは `.2` を付ける）で取得する。作業ブランチに Java のための変更を足したら、新しいタグを付けて参照を上げる（PyVisualizer の参照は、PyVisualizer の都合で上げる）
+- **土台の参照はタグで固定する**（[multilang-plan.md](../PyVisualizer/docs/multilang-plan.md) 3.1 節）。CI は兄弟リポジトリをタグ（いまの最新は JSInterpreter の `multilang-core-2026.11.25.2`・`multilang-master-2026.11.25.2`（ADR-017 を含む）、JSVisualizer の `multilang-2026.11.26`（Java のための言語プロファイルの項目を含む）。同じ日に 2 つ目を付けるときは `.2` を付ける）で取得する。作業ブランチに Java のための変更を足したら、新しいタグを付けて参照を上げる（PyVisualizer の参照は、PyVisualizer の都合で上げる）
 - 手元の開発は、兄弟ディレクトリの worktree を `file:` で参照する（PyVisualizer の `package.json` と同じ）
 
 ### 確認を取ること

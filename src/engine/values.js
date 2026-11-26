@@ -72,7 +72,10 @@ export const isDouble = (v) => v instanceof JDouble;
 export const isChar = (v) => v instanceof JChar;
 export const isBool = (v) => typeof v === 'boolean';
 export const isString = (v) => v instanceof JString;
-export const isArray = (v) => Array.isArray(v);
+/** Java の配列（ArrayList などのリストは含まない） */
+export const isArray = (v) => Array.isArray(v) && v.__jlist === undefined;
+/** ArrayList・List.of のリスト（JS の配列＋列挙されない印 __jlist。ADR-007） */
+export const isList = (v) => Array.isArray(v) && v.__jlist !== undefined;
 export const isObject = (v) => v !== null && typeof v === 'object' && v.__type__ === 'JObject';
 /** 数値の型（char を含む。boolean は含まない） */
 export const isNumeric = (v) => isInt(v) || isLong(v) || isDouble(v) || isChar(v);
@@ -114,6 +117,7 @@ export function typeName(v) {
   if (isChar(v)) return 'char';
   if (isBool(v)) return 'boolean';
   if (isString(v)) return 'String';
+  if (isList(v)) return v.__jlistElem ? `ArrayList<${v.__jlistElem}>` : 'ArrayList';
   if (isArray(v)) return `${v.__jelem}[]`;
   if (isObject(v)) return v.cls.name;
   return typeof v;
@@ -126,14 +130,55 @@ export function makeArray(elemType, items) {
   return a;
 }
 
-/** スナップショットのクローン（配列の要素の型の印を保つ。共通コアの createCloner に渡す） */
+/**
+ * リストを作る（ArrayList。ADR-007）。kind は 'ArrayList'（変更できる）か 'List'（List.of。変更できない）、
+ * elemType は要素の型（'Integer'・'String'。分からなければ null）
+ */
+export function makeList(items, { kind = 'ArrayList', elemType = null } = {}) {
+  const a = [...items];
+  Object.defineProperty(a, '__jlist', { value: kind, enumerable: false, writable: true });
+  Object.defineProperty(a, '__jlistElem', { value: elemType, enumerable: false, writable: true });
+  return a;
+}
+
+/** スナップショットのクローン（配列の要素の型・リストの印を保つ。共通コアの createCloner に渡す） */
 export function javaCloneHook(v, clone, seen) {
-  if (!Array.isArray(v) || v.__jelem === undefined) return undefined;
+  if (!Array.isArray(v) || (v.__jelem === undefined && v.__jlist === undefined)) return undefined;
   const c = [];
   seen.set(v, c);
   for (const x of v) c.push(clone(x));
-  Object.defineProperty(c, '__jelem', { value: v.__jelem, enumerable: false });
+  if (v.__jelem !== undefined) Object.defineProperty(c, '__jelem', { value: v.__jelem, enumerable: false });
+  if (v.__jlist !== undefined) {
+    Object.defineProperty(c, '__jlist', { value: v.__jlist, enumerable: false });
+    Object.defineProperty(c, '__jlistElem', { value: v.__jlistElem, enumerable: false });
+  }
   return c;
+}
+
+// ── 型の文字列（ジェネリクス・ラッパー型。ADR-007） ─────────────────────────────
+
+/** ラッパー型 → プリミティブの型 */
+export const BOXES = { Integer: 'int', Long: 'long', Double: 'double', Character: 'char', Boolean: 'boolean', Short: 'short', Byte: 'byte', Float: 'float' };
+/** ラッパー型ならプリミティブの型に、そうでなければそのまま（int・Integer → int） */
+export const unboxType = (t) => (t && BOXES[t]) || t;
+/** プリミティブの型ならラッパー型に（int → Integer） */
+export const boxType = (t) => Object.keys(BOXES).find(k => BOXES[k] === t) ?? t;
+/** 型引数を除いた型の名前（ArrayList<Integer> → ArrayList） */
+export const baseType = (t) => (typeof t === 'string' ? t.replace(/<.*>$/, '') : t);
+/** 型引数の並び（Map<String,List<Integer>> → ['String', 'List<Integer>']。なければ []） */
+export function typeArgs(t) {
+  const m = typeof t === 'string' && t.match(/^[^<]*<(.*)>$/);
+  if (!m || m[1] === '') return [];
+  const out = [];
+  let depth = 0, cur = '';
+  for (const c of m[1]) {
+    if (c === ',' && depth === 0) { out.push(cur.trim()); cur = ''; continue; }
+    if (c === '<') depth++;
+    if (c === '>') depth--;
+    cur += c;
+  }
+  out.push(cur.trim());
+  return out;
 }
 
 // ── 整数の切り詰め ────────────────────────────────────────────────────────────

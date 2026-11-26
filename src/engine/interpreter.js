@@ -14,7 +14,7 @@ import {
 } from 'js-interpreter/core';
 import {
   JavaError, JavaCompileError, makeDouble, makeChar, makeString, makeArray, javaCloneHook,
-  isInt, isLong, isDouble, isChar, isBool, isString, isArray, isNumeric, num,
+  isInt, isLong, isDouble, isChar, isBool, isString, isArray, isList, isNumeric, num, makeList, BOXES, baseType,
   coerce, defaultValue, isPrimitiveType, isArrayType, elemTypeOf, javaStr, typeName,
 } from './values.js';
 import {
@@ -22,6 +22,9 @@ import {
   hasInstanceField, findMethods, makeObject, makeThrowable, isThrowable, throwableString, JThrow, toJavaException,
 } from './objects.js';
 import { createBuiltins, isBuiltin, callStringMethod, createScanner } from './builtins.js';
+import {
+  callListMethod, listString, createCollectionBuiltins, makeStringBuilder, isStringBuilder, callStringBuilderMethod, callWrapperMethod,
+} from './collections.js';
 
 const MAX_CALL_DEPTH = 3000;
 
@@ -223,7 +226,10 @@ export function createRuntime(recorder, classes, { stdin = '' } = {}) {
     str: (v) => stringOf(v, rt),
     write: (text) => recorder.write(text),
     intern: rt.intern,
+    equals: (a, b) => javaEquals(a, b, rt),
+    hashCode: (v) => javaHashCode(v, rt),
   };
+  for (const [k, v] of createCollectionBuiltins()) rt.builtins.set(k, v);
   return rt;
 }
 
@@ -236,6 +242,8 @@ function currentDepths(rt) {
 /** String.valueOf(v)：オブジェクトはユーザーの toString() があれば呼ぶ */
 export function stringOf(v, rt) {
   return javaStr(v, (o) => {
+    if (isList(o)) return listString(o, rt.bctx);
+    if (isStringBuilder(o)) return o.fields.value.s;
     if (isJObject(o)) {
       const m = findMethods(o.cls, 'toString').find(x => x.paramTypes.length === 0 && !x.static);
       if (m) {
@@ -250,6 +258,47 @@ export function stringOf(v, rt) {
     if (isClass(o)) return `class ${o.name}`;
     return String(o);
   });
+}
+
+/** Java の equals（ユーザーの equals(Object) があれば呼ぶ。ArrayList の contains・indexOf・remove などで使う） */
+export function javaEquals(a, b, rt) {
+  if (a === null || b === null) return a === b;
+  if (isString(a)) return isString(b) && a.s === b.s;
+  if (isList(a)) return callListMethod(a, 'equals', [b], rt.bctx) === true;
+  if (isJObject(a)) {
+    const m = findMethods(a.cls, 'equals').find(x => !x.static && x.paramTypes.length === 1 && x.paramTypes[0] === 'Object');
+    if (m) {
+      const { depth, callDepth, loc } = currentDepths(rt);
+      return callMethod(m, a, [b], rt, depth, callDepth, loc) === true;
+    }
+    return a === b;
+  }
+  if (isStringBuilder(a)) return a === b;
+  return callWrapperMethod(a, 'equals', [b], rt.bctx);
+}
+
+/** Java の hashCode（String・ラッパー型は本物と同じ値。オブジェクトはユーザーの hashCode() があれば呼ぶ） */
+export function javaHashCode(v, rt) {
+  if (v === null) return 0;
+  if (isString(v)) return callStringMethod(v, 'hashCode', [], rt.bctx);
+  if (isInt(v)) return v;
+  if (isLong(v)) return Number(BigInt.asIntN(32, v ^ (BigInt.asUintN(64, v) >> 32n)));
+  if (isChar(v)) return v.code;
+  if (isBool(v)) return v ? 1231 : 1237;
+  if (isDouble(v)) {
+    const buf = new DataView(new ArrayBuffer(8));
+    buf.setFloat64(0, Number.isNaN(v.v) ? NaN : v.v);
+    return (buf.getInt32(0) ^ buf.getInt32(4)) | 0;
+  }
+  if (isList(v)) return callListMethod(v, 'hashCode', [], rt.bctx);
+  if (isJObject(v)) {
+    const m = findMethods(v.cls, 'hashCode').find(x => !x.static && x.paramTypes.length === 0);
+    if (m) {
+      const { depth, callDepth, loc } = currentDepths(rt);
+      return callMethod(m, v, [], rt, depth, callDepth, loc);
+    }
+  }
+  return identityHash(v, rt);
 }
 
 function identityHash(o, rt) {
@@ -468,10 +517,13 @@ function argDistance(v, t) {
     case 'short': case 'byte': return -1;
     case 'boolean': return isBool(v) ? 0 : -1;
     case 'String': return v === null || isString(v) ? 0 : -1;
-    case 'Object': return v === null ? 1 : isJObject(v) || isArray(v) || isString(v) ? 1 : 5;   // プリミティブは包んで渡す
+    case 'Object': return v === null ? 1 : isJObject(v) || Array.isArray(v) || isString(v) ? 1 : 5;   // プリミティブは包んで渡す
   }
   if (v === null) return isPrimitiveType(t) ? -1 : 0;
   if (isArrayType(t)) return isArray(v) ? 0 : -1;
+  // ラッパー型（Integer は int の値を包む）・リスト
+  if (BOXES[t]) { const d = argDistance(v, BOXES[t]); return d === 0 ? 1 : -1; }
+  if (/^(ArrayList|List)$/.test(baseType(t))) return isList(v) ? 0 : -1;
   if (isJObject(v)) {
     let dist = 0;
     for (let k = v.cls; k; k = k.superClass, dist++) if (k.name === t) return dist;
@@ -515,7 +567,11 @@ function dispatch(obj, m) {
 /** 値を型 t の変数に入れるための変換（代入の変換。プリミティブの拡大・定数の縮小） */
 function assignConvert(v, t) {
   if (t === 'var' || t === undefined) return v;
-  if (isPrimitiveType(t)) return coerce(v, t);
+  if (isPrimitiveType(t)) {
+    // null の Integer などを int に入れる（取り出す）と NullPointerException（ADR-007）
+    if (v === null) throw new JavaError('NullPointerException', `Cannot unbox null value to ${t}`);
+    return coerce(v, t);
+  }
   return v;
 }
 
@@ -671,10 +727,30 @@ function unop(op, v, loc) {
 /** 値が型 t のインスタンスか（instanceof・キャスト） */
 function instanceOf(v, t) {
   if (v === null) return false;
+  t = baseType(t);
   if (t === 'Object') return true;
+  if (t === 'ArrayList' || t === 'List') return isList(v);
+  if (t === 'StringBuilder') return isStringBuilder(v);
+  if (BOXES[t]) return argDistance(v, BOXES[t]) === 0;
   if (t === 'String') return isString(v);
   if (isArrayType(t)) return isArray(v);
   if (isJObject(v)) for (let k = v.cls; k; k = k.superClass) if (k.name === t) return true;
+  return false;
+}
+
+/**
+ * ラッパー型の値どうしの ==（参照の比較）。自動ボクシングは valueOf を使い、Integer・Long・Short・Byte は -128〜127、
+ * Character は 0〜127、Boolean はいつも同じ箱を返す。Double はいつも新しい箱。
+ * 同じ箱を 2 つの変数で指す場合（Integer y = x;）は、本物は true だが、ここでは値の箱を持たないので上の規則で決める
+ */
+function boxedSame(a, b, type) {
+  if (a === null || b === null) return a === b;
+  switch (type) {
+    case 'Boolean': return a === b;
+    case 'Character': return a.code === b.code && a.code <= 127;
+    case 'Integer': case 'Short': case 'Byte': return a === b && a >= -128 && a <= 127;
+    case 'Long': return a === b && a >= -128n && a <= 127n;
+  }
   return false;
 }
 
@@ -843,12 +919,12 @@ function _eval(node, env, rt, depth, callDepth) {
     case 'ForOfStatement': {
       const coll = ev(node.right);
       if (coll === null) throw npeAt(node.right.loc, 'Cannot read the array length', node.right, env, rt);
-      if (!isArray(coll)) throw compileError('拡張 for 文（for (型 変数 : …)）で繰り返せるのは配列だけです', node.right.loc, 'for-each not applicable to expression type');
+      if (!Array.isArray(coll)) throw compileError('拡張 for 文（for (型 変数 : …)）で繰り返せるのは配列とリストだけです', node.right.loc, 'for-each not applicable to expression type');
       // 各回のループ変数への代入を LoopBinding として記録する（「人」のステップが各回で止まる。ADR-003）
       const binding = { type: 'LoopBinding', loc: node.left.loc, end: node.left.end };
       for (let i = 0; i < coll.length; i++) {
         const ienv = new JScope(env, 'block');
-        const t = node.varType === 'var' ? coll.__jelem : node.varType;
+        const t = node.varType === 'var' ? (coll.__jelem ?? coll.__jlistElem ?? undefined) : node.varType;
         rt.recorder.record(binding, ienv, d, callDepth, () => {
           declare(ienv, node.left.name, t, assignConvert(coll[i], t));
           return ienv.bindings.get(node.left.name);
@@ -972,6 +1048,8 @@ function _eval(node, env, rt, depth, callDepth) {
     case 'BinaryExpression': {
       const a = ev(node.left);
       const b = ev(node.right);
+      // 両側がラッパー型の == は参照の比較。値の箱は持たないので、Integer.valueOf のキャッシュの規則で決める（ADR-007）
+      if (node.boxedCompare) return boxedSame(a, b, node.boxedCompare) === (node.operator === '==');
       const r = binop(node.operator, a, b, node.loc, rt);
       // 定数式の文字列（"hel" + "lo"）は、コンパイル時に計算されてリテラルと同じく共有される（JLS 15.29）
       return isString(r) && isConstantExpression(node) ? rt.intern(r.s) : r;
@@ -1038,6 +1116,13 @@ function _eval(node, env, rt, depth, callDepth) {
 
     case 'NewExpression': {
       const name = node.callee.name;
+      if ((name === 'ArrayList' || name === 'StringBuilder') && !rt.classes.has(name)) {
+        const args = node.arguments.map(a => ev(a));
+        if (name === 'StringBuilder') return makeStringBuilder(args, rt.bctx);
+        // new ArrayList<>()・new ArrayList<>(容量)・new ArrayList<>(別のリスト)。要素の型は静的な検査が付けた印（ADR-007）
+        if (args[0] === null) throw new JavaError('NullPointerException', null, node.loc);
+        return makeList(Array.isArray(args[0]) ? args[0] : [], { elemType: node.elemType ?? null });
+      }
       if (name === 'Scanner' && !rt.classes.has('Scanner')) {
         // new Scanner(System.in)：入力欄の内容を読む（ADR-005）
         node.arguments.forEach(a => ev(a));
@@ -1162,12 +1247,29 @@ function evalCall(node, env, rt, d, callDepth) {
     if (r === undefined) throw compileError(`String に ${name}(…) はありません（まだ対応していないメソッドかもしれません）`, callee.loc, 'cannot find symbol');
     return r;
   }
+  if (isStringBuilder(obj)) {
+    let r;
+    try { r = callStringBuilderMethod(obj, name, args, rt.bctx); } catch (e) { if (e instanceof JavaError && !e.loc) e.loc = node.loc; throw e; }
+    if (r !== undefined || /^(setCharAt|setLength)$/.test(name)) return r;
+    return objectMethod(obj, name, args, rt, node.loc);
+  }
   if (isJObject(obj)) {
     const cands = findMethods(obj.cls, name).filter(x => !x.static);
     if (cands.length) return callMethod(dispatch(obj, chooseMethod(cands, args, node.loc, name, node.signature)), obj, args, rt, d, callDepth, node.loc);
     return objectMethod(obj, name, args, rt, node.loc);
   }
   if (isArray(obj) && name === 'clone') return makeArray(obj.__jelem, obj);
+  // リスト・StringBuilder・ラッパー型（Integer など）のメソッド（ADR-007）
+  let r;
+  try {
+    if (isList(obj)) r = callListMethod(obj, name, args, rt.bctx, node.argTypes);
+    else if (isStringBuilder(obj)) r = callStringBuilderMethod(obj, name, args, rt.bctx);
+    else if (isNumeric(obj) || isBool(obj)) r = callWrapperMethod(obj, name, args, rt.bctx);
+  } catch (e) {
+    if (e instanceof JavaError && !e.loc) e.loc = node.loc;
+    throw e;
+  }
+  if (r !== undefined || (isList(obj) && /^(add|clear|sort)$/.test(name)) || (isStringBuilder(obj) && /^(setCharAt|setLength)$/.test(name))) return r;
   throw compileError(`${typeName(obj)} の値に ${name}(…) はありません`, callee.loc, 'cannot find symbol');
 }
 

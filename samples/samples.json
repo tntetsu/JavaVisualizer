@@ -117,6 +117,10 @@
         [
           "26_scanner_input",
           "Input (Scanner)"
+        ],
+        [
+          "27_array_list",
+          "ArrayList & StringBuilder"
         ]
       ]
     },

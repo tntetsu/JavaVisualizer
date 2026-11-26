@@ -175,3 +175,13 @@ test('ADR-006 例 4：入力欄の見出しは Scanner の文言', async () => {
   assert.equal(p.inputText.ja.label, '入力（Scanner で読みます。空白や改行で区切ります）');
   assert.ok(p.supportsInput);
 });
+
+test('ADR-007 例：ArrayList の表示・remove の 2 つの意味・Integer の ==', async () => {
+  const { javaValueModel: m } = await import('../src/lang/java.js');
+  const src = 'import java.util.ArrayList;\n\npublic class Main {\n    public static void main(String[] args) {\n        ArrayList<Integer> scores = new ArrayList<>();\n        scores.add(70);\n        scores.add(85);\n        scores.add(1, 90);\n        System.out.println(scores);\n        scores.remove(0);\n        scores.remove(Integer.valueOf(85));\n        System.out.println(scores);\n        Integer a = 1000, b = 1000;\n        System.out.println((a == b) + " " + a.equals(b));\n    }\n}\n';
+  const dbg = new JavaDebugger(src);
+  assert.deepEqual(joinConsoleLines(dbg.consoleLogs).map(l => l.text), ['[70, 90, 85]', '[90]', 'false true']);
+  const list = dbg.trace.find(e => e.phase === 'exit' && e.nodeType === 'ExpressionStatement' && e.loc.line === 8).frameEnvs.at(-1).scores;
+  assert.equal(m.label(list), 'ArrayList<Integer>(3)');
+  assert.deepEqual(m.brackets(list), ['[', ']']);
+});

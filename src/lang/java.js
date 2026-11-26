@@ -6,7 +6,7 @@
  */
 import { java } from '@codemirror/lang-java';
 import { JavaDebugger, ExecutionError } from '../engine/java-debugger.js';
-import { JDouble, JChar, JString, isArray, isObject, num, literalOf } from '../engine/values.js';
+import { JDouble, JChar, JString, isArray, isList, isObject, num, literalOf } from '../engine/values.js';
 import { isClass } from '../engine/objects.js';
 import { isBuiltin } from '../engine/builtins.js';
 import { messageToEnglish } from '../engine/messages-en.js';
@@ -21,6 +21,9 @@ export function localizeJavaError(message, lang) {
   if (lang !== 'en') return message;
   return messageToEnglish(message) ?? localizeErrorMessage(message, lang);
 }
+
+/** リストの型の名前（ArrayList<Integer>・List<String>） */
+const listName = (v) => `${v.__jlist}${v.__jlistElem ? `<${v.__jlistElem}>` : ''}`;
 
 /** Java の値の見せ方（JSVisualizer の ValueModel） */
 export const javaValueModel = {
@@ -37,7 +40,7 @@ export const javaValueModel = {
     if (v instanceof JChar || v instanceof JString) return 'string';
     if (v.__type__ === 'JSFunction') return 'function';   // 呼び出し先のメソッド（ADR-003 追記）
     if (isClass(v) || isBuiltin(v)) return 'other';
-    if (isArray(v)) return 'sequence';
+    if (isArray(v) || isList(v)) return 'sequence';   // ArrayList も配列のビューで見せる（ADR-007）
     if (isObject(v)) return 'object';
     return 'other';
   },
@@ -48,12 +51,12 @@ export const javaValueModel = {
     return literalOf(v);
   },
   entries(v) {
-    if (isArray(v)) return v.map((x, i) => [i, x]);
+    if (isArray(v) || isList(v)) return v.map((x, i) => [i, x]);
     if (isObject(v)) return Object.entries(v.fields);
     return [];
   },
   length(v) {
-    if (isArray(v)) return v.length;
+    if (isArray(v) || isList(v)) return v.length;
     if (isObject(v)) return Object.keys(v.fields).length;
     return 0;
   },
@@ -61,16 +64,19 @@ export const javaValueModel = {
   onHeap: (v) => v instanceof JString,
   label(v) {
     if (v instanceof JString) return 'String';
+    if (isList(v)) return `${listName(v)}(${v.length})`;   // ArrayList<Integer>(3)。配列の int[3] と書き分ける
     if (isArray(v)) return `${v.__jelem ?? '?'}[${v.length}]`;
     if (isObject(v)) return v.cls.name;
     return 'Object';
   },
   shortLabel(v) {
+    if (isList(v)) return listName(v);
     if (isArray(v)) return `${v.__jelem ?? '?'}[]`;
     if (isObject(v)) return v.cls.name;
     return 'Object';
   },
   brackets(v) {
+    if (isList(v)) return ['[', ']'];   // リストは toString と同じ [1, 2, 3]（配列の {1, 2, 3} と書き分ける。ADR-007）
     if (isArray(v)) return ['{', '}'];   // Java の配列の初期化子の書き方
     if (isObject(v)) return [`${v.cls.name}{`, '}'];
     return ['{', '}'];

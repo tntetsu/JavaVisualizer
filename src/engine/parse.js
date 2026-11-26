@@ -139,7 +139,26 @@ function textBlockValue(raw) {
  * @returns {object} Program
  * @throws {JavaSyntaxError}
  */
+/**
+ * 入れ子の型引数の閉じかっこ（Map<String, List<Integer>> m）を、@lezer/java はシフト演算子の >> として読んでしまう。
+ * 型の文脈（大文字で始まる型名の < が閉じていない所）で、>> のあとに空白が続くときだけ、同じ長さの「> >」に置き換える
+ * （文字の位置が変わらないので、ハイライトの位置はずれない。ADR-007）
+ */
+export function splitGenericClosers(src) {
+  return src.replace(/>> /g, (m, off) => {
+    // 同じ行の、この位置より前で閉じていない「型名<」の数（2 つ以上なら入れ子の型引数の閉じかっこ）
+    const line = src.slice(src.lastIndexOf('\n', off - 1) + 1, off);
+    let depth = 0;
+    for (const t of line.matchAll(/[A-Z]\w*\s*<|[<>]/g)) {
+      if (t[0] === '>') depth = Math.max(0, depth - 1);
+      else if (t[0] !== '<') depth++;
+    }
+    return depth >= 2 ? '> >' : m;
+  });
+}
+
 export function parse(src) {
+  src = splitGenericClosers(src);
   const tree = parser.parse(src);
   const pm = makePosMapper(src);
   let firstErr = null;
@@ -175,7 +194,13 @@ export function parse(src) {
       case 'var': return 'var';
       case 'void': return 'void';
       case 'ScopedTypeName': qualifiedClass(n); return text(n).replace(/\s+/g, '').split('.').pop();
-      case 'GenericType': return typeOf(kids(n)[0]);
+      case 'GenericType': {
+        // ArrayList<Integer> → 'ArrayList<Integer>'、ArrayList<> → 'ArrayList<>'（型引数は静的な検査で使う。ADR-007）
+        const [base, targs] = kids(n);
+        const list = targs ? kids(targs).filter(c => c.name !== '<' && c.name !== '>' && c.name !== ',') : [];
+        if (list.some(c => c.name === 'Wildcard')) unsupported('ワイルドカード（?）の型引数', n);
+        return `${typeOf(base)}<${list.map(typeOf).join(',')}>`;
+      }
       case 'ArrayType': {
         const [base, ...dims] = kids(n);
         return typeOf(base) + '[]'.repeat(dims.filter(d => d.name === 'Dimension').length);
@@ -533,8 +558,10 @@ export function parse(src) {
       case 'ObjectCreationExpression': {
         if (child(n, 'ClassBody')) unsupported('匿名クラス', n);
         const t = typeChild(n);
+        const full = typeOf(t);
+        // callee はクラス名（型引数なし）。型引数つきの型は genericType に残す（new ArrayList<>() の <> は代入先から決まる）
         return mk('NewExpression', n, {
-          callee: mk('Identifier', t, { name: typeOf(t) }), arguments: args(child(n, 'ArgumentList')),
+          callee: mk('Identifier', t, { name: full.replace(/<.*$/, '') }), genericType: full, arguments: args(child(n, 'ArgumentList')),
         });
       }
       case 'ArrayCreationExpression': {

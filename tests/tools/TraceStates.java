@@ -154,7 +154,10 @@ public class TraceStates {
         if (v instanceof ObjectReference o) {
             ReferenceType t = o.referenceType();
             if (isThrowable(t)) return "<" + t.name().replaceFirst("^.*\\.", "") + ">";
-            // JDK のクラスのオブジェクト（Scanner など）は、内部の状態を書かずに型名だけにする
+            // ラッパー型（Integer など）は中の値、リスト（ArrayList・List.of）は [要素, …]、StringBuilder は StringBuilder("…")
+            String jdk = jdkRepr(o, t, depth);
+            if (jdk != null) return jdk;
+            // そのほかの JDK のクラスのオブジェクト（Scanner など）は、内部の状態を書かずに型名だけにする
             if (t.name().matches("^(java|javax|jdk|sun)\\..*")) return "<" + t.name().replaceFirst("^.*\\.", "") + ">";
             if (depth >= 3) return t.name() + "{…}";
             List<Field> fs = new ArrayList<>();
@@ -165,6 +168,57 @@ public class TraceStates {
             return sb.append("}").toString();
         }
         return v.toString();
+    }
+
+    /** JDK のクラスのうち、中身を読んで書くもの（読めなければ null） */
+    static String jdkRepr(ObjectReference o, ReferenceType t, int depth) {
+        String n = t.name();
+        switch (n) {
+            case "java.lang.Integer", "java.lang.Long", "java.lang.Short", "java.lang.Byte", "java.lang.Double",
+                 "java.lang.Float", "java.lang.Character", "java.lang.Boolean" -> {
+                return repr(o.getValue(t.fieldByName("value")), depth);
+            }
+            case "java.util.ArrayList" -> {
+                int size = ((IntegerValue) o.getValue(t.fieldByName("size"))).value();
+                ArrayReference data = (ArrayReference) o.getValue(t.fieldByName("elementData"));
+                return listRepr(data == null ? List.of() : data.getValues(0, size), depth);
+            }
+            case "java.util.ImmutableCollections$ListN" -> {
+                ArrayReference data = (ArrayReference) o.getValue(t.fieldByName("elements"));
+                return listRepr(data.getValues(), depth);
+            }
+            case "java.util.ImmutableCollections$List12" -> {
+                List<Value> vs = new ArrayList<>();
+                vs.add(o.getValue(t.fieldByName("e0")));
+                Value e1 = o.getValue(t.fieldByName("e1"));
+                // List12 は要素が 1 つのとき、e1 に EMPTY（要素ではないオブジェクト）を入れている
+                if (e1 instanceof ObjectReference r && r.referenceType().name().equals("java.lang.Object")) { } else vs.add(e1);
+                return listRepr(vs, depth);
+            }
+            case "java.lang.StringBuilder" -> {
+                ClassType sup = ((ClassType) t).superclass();
+                ArrayReference bytes = (ArrayReference) o.getValue(sup.fieldByName("value"));
+                int count = ((IntegerValue) o.getValue(sup.fieldByName("count"))).value();
+                byte coder = ((ByteValue) o.getValue(sup.fieldByName("coder"))).value();
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < count; i++) {
+                    if (coder == 0) sb.append((char) (((ByteValue) bytes.getValue(i)).value() & 0xff));
+                    else {
+                        int lo = ((ByteValue) bytes.getValue(2 * i)).value() & 0xff, hi = ((ByteValue) bytes.getValue(2 * i + 1)).value() & 0xff;
+                        sb.append((char) (java.nio.ByteOrder.nativeOrder() == java.nio.ByteOrder.LITTLE_ENDIAN ? (hi << 8 | lo) : (lo << 8 | hi)));
+                    }
+                }
+                return "StringBuilder(" + quote(sb.toString()) + ")";
+            }
+        }
+        return null;
+    }
+
+    static String listRepr(List<Value> vs, int depth) {
+        if (depth >= 3) return "[…]";
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < vs.size(); i++) sb.append(i > 0 ? ", " : "").append(repr(vs.get(i), depth + 1));
+        return sb.append("]").toString();
     }
 
     static boolean isThrowable(ReferenceType t) {

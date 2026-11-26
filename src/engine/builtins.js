@@ -388,7 +388,7 @@ export function createBuiltins() {
       valueOf: ([v], ctx) => S(ctx.str(printArg(v))),
       format: (args, ctx) => S(javaFormat(args[0].s, args.slice(1), ctx)),
       join: ([sep, ...rest], ctx) => {
-        const items = rest.length === 1 && isArray(rest[0]) ? rest[0] : rest;
+        const items = rest.length === 1 && Array.isArray(rest[0]) ? rest[0] : rest;
         return S(items.map(x => ctx.str(x)).join(sep.s));
       },
     })],

@@ -3,7 +3,8 @@
  *
  * 本物の Java 側（tests/tools/TraceStates.java）と同じ時点・同じ書き方にする。
  */
-import { isArray, isObject, isString, isChar, isDouble, doubleToString, quoteString } from '../../src/engine/values.js';
+import { isArray, isList, isObject, isString, isChar, isDouble, doubleToString, quoteString } from '../../src/engine/values.js';
+import { isStringBuilder } from '../../src/engine/collections.js';
 import { isThrowable } from '../../src/engine/objects.js';
 import { isBuiltin } from '../../src/engine/builtins.js';
 
@@ -14,6 +15,8 @@ export function srepr(v, depth = 0) {
   if (isChar(v)) return `'${String.fromCharCode(v.code)}'`;
   if (isDouble(v)) return doubleToString(v.v);
   if (isBuiltin(v)) return `<${v.name}>`;   // Scanner など（TraceStates.java と同じく型名だけ）
+  if (isStringBuilder(v)) return `StringBuilder(${quoteString(v.fields.value.s)})`;
+  if (isList(v)) return depth >= 3 ? '[…]' : `[${v.map(x => srepr(x, depth + 1)).join(', ')}]`;
   if (isArray(v)) return depth >= 3 ? '[…]' : `[${v.map(x => srepr(x, depth + 1)).join(', ')}]`;
   if (isObject(v)) {
     if (isThrowable(v)) return `<${v.cls.name}>`;

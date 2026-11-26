@@ -56,6 +56,7 @@ const WHAT_EN = {
   'ラムダ式': 'lambda expressions',
   'メソッド参照（::）': 'method references (::)',
   'クラスリテラル（.class）': 'class literals (.class)',
+  'ワイルドカード（?）の型引数': 'wildcard type arguments (?)',
 };
 
 /** 「まだ対応していません」の構文の名前を英語にする（表にない名前は、「型「…」」などの形を読む） */

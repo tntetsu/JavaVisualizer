@@ -11,7 +11,7 @@
  * 型が分からない式（まだ表を作っていない組み込みのメソッドなど）は null とし、検査を見送る（誤ってエラーにしない）。
  * 見送るもの（ADR-004）：ジェネリクス、オーバーロードの細かな解決、到達できない文、変数の確実な初期化（実行時に検出）。
  */
-import { JavaCompileError, isPrimitiveType, isArrayType, elemTypeOf } from './values.js';
+import { JavaCompileError, isPrimitiveType, isArrayType, elemTypeOf, BOXES, unboxType, boxType, baseType, typeArgs } from './values.js';
 import { BUILTIN_CLASSES, findMethods, instanceFields, findStaticField } from './objects.js';
 
 const err = (ja, loc, javac) => new JavaCompileError(ja, loc, javac);
@@ -49,10 +49,15 @@ function constIntValue(n) {
  * 型 from の値を、型 to の変数に入れられるか（代入の変換。JLS 5.2）
  * @param {object} [node] 値の式（定数の縮小変換の判定に使う）
  */
+/** リストの型どうしの継承（ArrayList は List の下） */
+const LIST_SUPER = { ArrayList: ['List'], List: [] };
+
 function assignable(from, to, classes, node) {
   if (from === null || to === null || to === 'var') return true;
   if (from === to) return true;
   if (isPrimitiveType(to)) {
+    // ラッパー型からの取り出し（Integer → int・long。アンボクシングのあと拡大変換。ADR-007）
+    if (BOXES[from]) return widens(BOXES[from], to);
     if (widens(from, to)) return true;
     // 定数式の縮小（byte b = 10; char c = 65;）
     const c = node ? constIntValue(node) : null;
@@ -60,16 +65,19 @@ function assignable(from, to, classes, node) {
       const range = { byte: [-128, 127], short: [-32768, 32767], char: [0, 65535], int: [-2147483648, 2147483647] }[to];
       if (range && c >= range[0] && c <= range[1]) return true;
     }
-    // ボクシング型からの取り出し（Integer → int）は Phase 5
     return false;
   }
   if (from === 'null') return true;
   if (to === 'Object') return true;
-  if (isPrimitiveType(from)) {
-    const box = { int: 'Integer', long: 'Long', double: 'Double', char: 'Character', boolean: 'Boolean' }[from];
-    return box === to;
-  }
+  if (isPrimitiveType(from)) return boxType(from) === to;   // ボクシング（int → Integer）
   if (isArrayType(from) || isArrayType(to)) return from === to;
+  // ジェネリクス：型の名前が継承の関係にあり、型引数が同じ（<> や型引数なしはどれとも合う）
+  const fb = baseType(from), tb = baseType(to);
+  if (fb !== from || tb !== to || LIST_SUPER[fb]) {
+    if (!(fb === tb || (LIST_SUPER[fb] ?? []).includes(tb))) return false;
+    const fa = typeArgs(from), ta = typeArgs(to);
+    return fa.length === 0 || ta.length === 0 || fa.join(',') === ta.join(',');
+  }
   // クラスの継承
   for (let k = classes.get(from) ?? BUILTIN_CLASSES.get(from); k; k = k.superClass) if (k.name === to) return true;
   return false;
@@ -112,6 +120,12 @@ const STATIC_RETURNS = {
   },
   String: { valueOf: 'String', format: 'String', join: 'String' },
   Arrays: { toString: 'String', sort: 'void', fill: 'void' },
+  List: { of: (args) => `List<${args.length && args.every(a => a === args[0]) && args[0] ? boxType(args[0]) : 'Object'}>` },
+  Collections: {
+    sort: 'void', reverse: 'void', swap: 'void', frequency: 'int',
+    max: (args) => (args[0] ? typeArgs(args[0])[0] ?? null : null),
+    min: (args) => (args[0] ? typeArgs(args[0])[0] ?? null : null),
+  },
 };
 const STATIC_FIELDS = {
   Integer: { MAX_VALUE: 'int', MIN_VALUE: 'int' },
@@ -122,6 +136,19 @@ const STATIC_FIELDS = {
 };
 const BUILTIN_NAMES = new Set(Object.keys({ ...STATIC_RETURNS, ...STATIC_FIELDS }));
 
+/** StringBuilder のメソッドの戻り値の型（ADR-007） */
+const SB_METHODS = {
+  append: 'StringBuilder', insert: 'StringBuilder', reverse: 'StringBuilder', deleteCharAt: 'StringBuilder', delete: 'StringBuilder',
+  toString: 'String', length: 'int', charAt: 'char', setCharAt: 'void', indexOf: 'int', isEmpty: 'boolean', setLength: 'void',
+  equals: 'boolean', hashCode: 'int',
+};
+
+/** ラッパー型（Integer など）のインスタンスのメソッドの戻り値の型（ADR-007） */
+const WRAPPER_METHODS = {
+  equals: 'boolean', compareTo: 'int', intValue: 'int', longValue: 'long', doubleValue: 'double', charValue: 'char',
+  booleanValue: 'boolean', toString: 'String', hashCode: 'int',
+};
+
 /** Scanner のメソッドの戻り値の型（ADR-005） */
 const SCANNER_METHODS = {
   nextInt: 'int', nextLong: 'long', nextDouble: 'double', nextBoolean: 'boolean', next: 'String', nextLine: 'String',
@@ -129,7 +156,7 @@ const SCANNER_METHODS = {
 };
 
 /** java.util のクラス（import が要る） */
-const JAVA_UTIL = new Set(['Scanner', 'Arrays']);
+const JAVA_UTIL = new Set(['Scanner', 'Arrays', 'ArrayList', 'List', 'Collections']);
 
 /** import した java.util のクラスの名前（import java.util.*; はすべて） */
 function importedUtil(imports) {
@@ -413,6 +440,13 @@ class Locals {
  */
 export function check(ast, classes) {
   assignableType = (from, to) => assignable(from, to, classes);
+  /** new ArrayList<>() の <> を、代入先の型（List<Integer>）から決める（要素の型の印に使う） */
+  function inferDiamond(init, target) {
+    if (init?.type === 'NewExpression' && init.genericType?.endsWith('<>') && target && typeArgs(target).length) {
+      markType(init, 'elemType', typeArgs(target)[0]);
+    }
+  }
+
   /** final のローカル変数の名前（メソッドごとに作り直す） */
   let finals = new Set();
   const imported = importedUtil(ast.imports);
@@ -444,11 +478,16 @@ export function check(ast, classes) {
   }
 
   function knownType(t, loc) {
-    const base = t.replace(/(\[\])+$/, '');
+    const base = baseType(t.replace(/(\[\])+$/, ''));
+    for (const a of typeArgs(t.replace(/(\[\])+$/, ''))) {
+      if (isPrimitiveType(a)) throw err(`型引数にはプリミティブ型（${a}）は使えません（${boxType(a)} を使います）`, loc, 'unexpected type');
+      knownType(a, loc);
+    }
     if (base === 'float') throw err('float はまだ対応していません（小数は double を使います）', loc, 'float is not supported yet');
     if (isPrimitiveType(base) || base === 'var' || base === 'void' || base === 'String' || base === 'Object') return;
-    if (base === 'Scanner') { needImport(base, loc); return; }
-    if (classes.has(base) || BUILTIN_CLASSES.has(base) || ['Integer', 'Long', 'Double', 'Character', 'Boolean'].includes(base)) return;
+    if (base === 'Scanner' || base === 'ArrayList' || base === 'List') { needImport(base, loc); return; }
+    if (base === 'StringBuilder') return;
+    if (classes.has(base) || BUILTIN_CLASSES.has(base) || BOXES[base]) return;
     throw err(`型 ${base} が見つかりません（クラス名のつづりを確かめてください）`, loc, 'cannot find symbol');
   }
 
@@ -483,7 +522,7 @@ export function check(ast, classes) {
 
   function cond(n, locals, ctx) {
     const t = expr(n, locals, ctx);
-    if (t !== null && t !== 'boolean') {
+    if (t !== null && t !== 'boolean' && t !== 'Boolean') {
       const hint = n.type === 'AssignmentExpression' && n.operator === '=' ? '（等しいかを調べるときは「=」ではなく「==」を使います）' : '';
       throw err(`条件には boolean（true か false）になる式を書きます${hint}`, n.loc, `incompatible types: ${t} cannot be converted to boolean`);
     }
@@ -503,6 +542,7 @@ export function check(ast, classes) {
           if (locals.get(d.id.name) !== undefined) throw redeclared(d.id.name, d.loc, ctx);
           let t = d.varType;
           if (d.init) {
+            inferDiamond(d.init, t);
             const vt = expr(d.init, locals, ctx);
             if (t === 'var') t = vt;
             else if (!assignable(vt, t, classes, d.init)) throw incompatible(vt, t, d.init.loc);
@@ -525,9 +565,10 @@ export function check(ast, classes) {
       }
       case 'ForOfStatement': {
         const ct = expr(s.right, locals, ctx);
-        if (ct !== null && !isArrayType(ct)) throw err('拡張 for 文（for (型 変数 : …)）で繰り返せるのは配列だけです', s.right.loc, 'for-each not applicable to expression type');
+        const isListType = ct !== null && LIST_SUPER[baseType(ct)] !== undefined;
+        if (ct !== null && !isArrayType(ct) && !isListType) throw err('拡張 for 文（for (型 変数 : …)）で繰り返せるのは配列とリストだけです', s.right.loc, 'for-each not applicable to expression type');
         const inner = new Locals(locals);
-        const et = ct === null ? null : elemTypeOf(ct);
+        const et = ct === null ? null : isListType ? (typeArgs(ct)[0] ?? 'Object') : elemTypeOf(ct);
         const vt = s.varType === 'var' ? et : s.varType;
         if (s.varType !== 'var' && !assignable(et, vt, classes)) throw incompatible(et, vt, s.left.loc);
         if (locals.get(s.left.name) !== undefined) throw redeclared(s.left.name, s.left.loc, ctx);
@@ -591,6 +632,38 @@ export function check(ast, classes) {
     throw err(`「${name}」という変数は宣言されていません（つづりと、宣言した場所（{ } の範囲）を確かめてください）`, loc, 'cannot find symbol');
   }
 
+  /** ArrayList・List のメソッドの戻り値の型（引数の型も確かめる。ADR-007） */
+  function listCallType(n, name, ot, argTypes, loc) {
+    markType(n, 'argTypes', argTypes);   // remove(int) と remove(Object) の区別に使う
+    const E = typeArgs(ot)[0] ?? 'Object';
+    const elemArg = (i) => {
+      if (!assignable(argTypes[i], E, classes)) {
+        // add は add(E) と add(int, E) の 2 つの形があるので、javac は「当てはまるメソッドがない」と書く
+        const javac = name === 'add' ? `no suitable method found for add(${argTypes.join(',')})` : `incompatible types: ${argTypes[i]} cannot be converted to ${E}`;
+        throw err(`${E} のリストに ${argTypes[i]} の値は入れられません`, n.loc, javac);
+      }
+    };
+    const indexArg = (i) => {
+      if (argTypes[i] !== null && !widens(unboxType(argTypes[i]), 'int')) {
+        throw err('リストの位置（添字）には int の値を使います', n.arguments[i].loc, `incompatible types: ${argTypes[i]} cannot be converted to int`);
+      }
+    };
+    switch (name) {
+      case 'size': case 'indexOf': case 'lastIndexOf': case 'hashCode': return 'int';
+      case 'isEmpty': case 'contains': case 'equals': case 'addAll': return 'boolean';
+      case 'clear': case 'sort': return 'void';
+      case 'toString': return 'String';
+      case 'get': indexArg(0); return E;
+      case 'set': indexArg(0); elemArg(1); return E;
+      case 'add':
+        if (argTypes.length === 2) { indexArg(0); elemArg(1); return 'void'; }
+        elemArg(0);
+        return 'boolean';
+      case 'remove': return argTypes[0] && ['int', 'short', 'byte', 'char'].includes(argTypes[0]) ? E : 'boolean';
+    }
+    throw err(`リスト（${baseType(ot)}）に ${name}(…) はありません（まだ対応していないメソッドかもしれません）`, loc, 'cannot find symbol');
+  }
+
   /** メソッドの呼び出しの戻り値の型 */
   function callType(n, locals, ctx) {
     const argTypes = n.arguments.map(a => expr(a, locals, ctx));
@@ -638,6 +711,15 @@ export function check(ast, classes) {
       return SCANNER_METHODS[name];
     }
     if (ot === 'String') return STRING_METHODS[name] ?? null;
+    if (LIST_SUPER[baseType(ot)] !== undefined) return listCallType(n, name, ot, argTypes, c.loc);
+    if (ot === 'StringBuilder') {
+      if (!(name in SB_METHODS)) throw err(`StringBuilder に ${name}(…) はありません（まだ対応していないメソッドかもしれません）`, c.loc, 'cannot find symbol');
+      return SB_METHODS[name];
+    }
+    if (BOXES[ot]) {
+      if (!(name in WRAPPER_METHODS)) throw err(`${ot} に ${name}(…) はありません（まだ対応していないメソッドかもしれません）`, c.loc, 'cannot find symbol');
+      return WRAPPER_METHODS[name];
+    }
     if (isPrimitiveType(ot)) throw err(`${ot} の値にはメソッドがありません（${name}(…) は呼べません）`, c.loc, `${ot} cannot be dereferenced`);
     const cls = classes.get(ot);
     if (cls && findMethods(cls, name).length) return userCall(cls, name);
@@ -655,9 +737,13 @@ export function check(ast, classes) {
         if (ctx.isStatic) throw err('static メソッドの中では this は使えません', n.loc, 'non-static variable this cannot be referenced from a static context');
         return ctx.cls.name;
       case 'BinaryExpression': {
-        const a = expr(n.left, locals, ctx), b = expr(n.right, locals, ctx);
+        const a0 = expr(n.left, locals, ctx), b0 = expr(n.right, locals, ctx);
         const op = n.operator;
-        if (op === '+' && (a === 'String' || b === 'String')) return 'String';
+        if (op === '+' && (a0 === 'String' || b0 === 'String')) return 'String';
+        // == と != は、両方がラッパー型なら参照の比較、片方だけならアンボクシングして値の比較（ADR-007）
+        const both = BOXES[a0] && BOXES[b0];
+        const a = (op === '==' || op === '!=') && both ? a0 : unboxType(a0), b = (op === '==' || op === '!=') && both ? b0 : unboxType(b0);
+        if ((op === '==' || op === '!=') && both) markType(n, 'boxedCompare', a0);
         if (['==', '!=', '<', '>', '<=', '>='].includes(op)) {
           if (op !== '==' && op !== '!=' && a !== null && b !== null && (!isNumericType(a) || !isNumericType(b))) {
             throw err(`「${op}」で比べられるのは数どうしだけです（${a} と ${b}）`, n.loc, `bad operand types for binary operator '${op}'`);
@@ -674,14 +760,14 @@ export function check(ast, classes) {
       }
       case 'LogicalExpression': cond(n.left, locals, ctx); cond(n.right, locals, ctx); return 'boolean';
       case 'UnaryExpression': {
-        const t = expr(n.argument, locals, ctx);
+        const t = unboxType(expr(n.argument, locals, ctx));
         if (n.operator === '!') { if (t !== null && t !== 'boolean') throw err('「!」は boolean の値に使います', n.loc, `bad operand type ${t} for unary operator '!'`); return 'boolean'; }
         return t === null ? null : promote(t, 'int');
       }
       case 'UpdateExpression': {
         const t = expr(n.argument, locals, ctx);
         requireAssignable(n.argument, locals, ctx);
-        if (t !== null && !isNumericType(t)) throw err(`「${n.operator}」は数の変数に使います`, n.loc, `bad operand type ${t} for unary operator '${n.operator}'`);
+        if (t !== null && !isNumericType(unboxType(t))) throw err(`「${n.operator}」は数の変数に使います`, n.loc, `bad operand type ${t} for unary operator '${n.operator}'`);
         return t;
       }
       case 'AssignmentExpression': {
@@ -722,7 +808,7 @@ export function check(ast, classes) {
           const at = expr(n.object, locals, ctx);
           markType(n, 'objType', at);
           const it = expr(n.property, locals, ctx);
-          if (it !== null && !widens(it, 'int')) throw err('配列の添字には int の値を使います', n.property.loc, `incompatible types: ${it} cannot be converted to int`);
+          if (it !== null && !widens(unboxType(it), 'int')) throw err('配列の添字には int の値を使います', n.property.loc, `incompatible types: ${it} cannot be converted to int`);
           if (at === null) return null;
           if (!isArrayType(at)) throw err(`${at} は配列ではないので [ ] は使えません`, n.loc, `array required, but ${at} found`);
           return elemTypeOf(at);
@@ -735,6 +821,9 @@ export function check(ast, classes) {
         if (isArrayType(ot)) {
           if (name === 'length') return 'int';
           throw err(`配列に ${name} はありません（長さは length）`, n.loc, 'cannot find symbol');
+        }
+        if (LIST_SUPER[baseType(ot)] !== undefined) {
+          throw err(`リストに ${name} はありません${name === 'length' ? '（リストの長さは size() で調べます）' : ''}`, n.loc, 'cannot find symbol');
         }
         if (ot.startsWith('builtin:')) return STATIC_FIELDS[ot.slice(8)]?.[name] ?? null;
         if (ot.startsWith('class:')) {
@@ -757,8 +846,15 @@ export function check(ast, classes) {
       }
       case 'NewExpression': {
         const name = n.callee.name;
-        knownType(name, n.callee.loc);
+        knownType(n.genericType ?? name, n.callee.loc);
         const argTypes = n.arguments.map(a => expr(a, locals, ctx));
+        // ArrayList（型引数つき）・StringBuilder（ADR-007）。要素の型の印は、評価器が表示（ArrayList<Integer>）に使う
+        if (name === 'ArrayList' && !classes.has(name)) {
+          const e = typeArgs(n.genericType ?? '')[0];
+          if (e) markType(n, 'elemType', e);
+          return n.genericType ?? 'ArrayList';
+        }
+        if (name === 'StringBuilder' && !classes.has(name)) return 'StringBuilder';
         const cls = classes.get(name);
         if (cls) {
           if (cls.ctors.length === 0 && argTypes.length) {
